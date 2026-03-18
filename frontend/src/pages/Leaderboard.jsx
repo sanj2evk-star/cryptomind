@@ -35,6 +35,9 @@ export default function Leaderboard() {
   const strategies = data?.strategies || {};
   const mkt = data?.market_state || {};
   const cycle = data?.cycle ?? 0;
+  const primary = data?.primary_strategy || "";
+  const allocations = data?.allocations || {};
+  const events = data?.event_log || [];
 
   return (
     <>
@@ -62,6 +65,7 @@ export default function Leaderboard() {
                 <th>Trades</th>
                 <th>Win Rate</th>
                 <th>Drawdown</th>
+                <th>Alloc</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -89,11 +93,15 @@ export default function Leaderboard() {
                     <td style={{ color: s.max_drawdown > 5 ? "var(--red)" : "var(--text-muted)" }}>
                       {s.max_drawdown.toFixed(1)}%
                     </td>
+                    <td style={{ fontSize: 12 }}>{s.allocation_pct ?? 20}%</td>
                     <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <StatusDot action={s.last_action} />
-                        <span style={{ fontSize: 11 }}>{s.last_action}</span>
-                      </div>
+                      <span style={{
+                        display: "inline-block", padding: "2px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700,
+                        background: s.status === "LEADING" ? "#eab30822" : s.status === "INACTIVE" ? "#ef444422" : "#22c55e22",
+                        color: s.status === "LEADING" ? "#eab308" : s.status === "INACTIVE" ? "#ef4444" : "#22c55e",
+                      }}>
+                        {s.status === "LEADING" ? "★ LEADING" : s.status}
+                      </span>
                     </td>
                   </tr>
                 );
@@ -152,6 +160,55 @@ export default function Leaderboard() {
           );
         })}
       </div>
+
+      {/* Event Log */}
+      {events.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <h3 style={{ color: "var(--text-muted)", marginBottom: 12 }}>Adaptive Engine Events</h3>
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            {events.slice(0, 10).map((e, i) => {
+              const colors = {
+                strategy_switch: "#eab308",
+                strategy_killed: "#ef4444",
+                strategy_revived: "#22c55e",
+                reallocation: "#3b82f6",
+              };
+              const icons = {
+                strategy_switch: "🔄",
+                strategy_killed: "💀",
+                strategy_revived: "🔄",
+                reallocation: "📊",
+              };
+              return (
+                <div key={i} style={{
+                  padding: "10px 14px", borderBottom: i < 9 ? "1px solid var(--border)" : "none",
+                  display: "flex", gap: 10, alignItems: "center", fontSize: 12,
+                }}>
+                  <span style={{ fontSize: 14 }}>{icons[e.event] || "📋"}</span>
+                  <span style={{ color: colors[e.event] || "var(--text-muted)", fontWeight: 600, minWidth: 100 }}>
+                    {e.event?.replace(/_/g, " ").toUpperCase()}
+                  </span>
+                  <span style={{ color: "var(--text)" }}>
+                    {e.strategy && `${e.strategy} `}
+                    {e.from && e.to && `${e.from} → ${e.to} `}
+                    {e.reason && `— ${e.reason}`}
+                  </span>
+                  <span style={{ marginLeft: "auto", color: "var(--text-muted)", fontSize: 10 }}>
+                    {e.timestamp?.slice(11, 19)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Primary Strategy */}
+      {primary && (
+        <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "right", marginTop: 12 }}>
+          Primary: <span style={{ color: "var(--yellow)", fontWeight: 600 }}>{primary}</span> | Cycle #{cycle}
+        </p>
+      )}
     </>
   );
 }
