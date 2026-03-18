@@ -20,7 +20,7 @@ data/experience_buffer.json
 
 # Frontend
 frontend/node_modules/
-frontend/dist/
+# frontend/dist/ — committed for Render deploy (no Node needed on server)
 frontend/.env
 frontend/.env.local
 
