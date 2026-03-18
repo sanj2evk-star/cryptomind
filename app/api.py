@@ -372,6 +372,16 @@ def get_public_journal(limit: int = Query(default=20, ge=1, le=100)):
     return {"count": len(entries), "entries": entries}
 
 
+@app.get("/leaderboard")
+def get_leaderboard():
+    """Multi-strategy leaderboard. No auth required."""
+    try:
+        import multi_strategy
+        return multi_strategy.get_leaderboard()
+    except Exception as e:
+        return {"error": str(e), "leaderboard": [], "strategies": {}}
+
+
 @app.get("/insight")
 def get_session_insight():
     """Current session insight — trader-style summary. No auth required."""
@@ -451,7 +461,7 @@ if _frontend_dir:
     _index_bytes = _index_html.read_bytes()
 
     # Known SPA routes that collide with API endpoints
-    _SPA_PATHS = {"/", "/trades", "/performance", "/journal"}
+    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard"}
 
     class SPAMiddleware(BaseHTTPMiddleware):
         """Serve index.html for browser navigation to SPA routes.

@@ -20,9 +20,10 @@ data/experience_buffer.json
 
 # Frontend
 frontend/node_modules/
-# frontend/dist/ — committed for Render deploy (no Node needed on server)
 frontend/.env
 frontend/.env.local
+# frontend/dist/ is NOT ignored — committed for Render deploy
+!frontend/dist/
 
 # Desktop
 desktop/node_modules/

@@ -6,6 +6,7 @@ import Dashboard from "./pages/Dashboard";
 import Trades from "./pages/Trades";
 import Performance from "./pages/Performance";
 import Journal from "./pages/Journal";
+import Leaderboard from "./pages/Leaderboard";
 
 // ---------------------------------------------------------------------------
 // Health check states: "checking" | "ok" | "down"
@@ -132,6 +133,9 @@ export default function App() {
         <NavLink to="/journal" className={({ isActive }) => (isActive ? "active" : "")}>
           Journal
         </NavLink>
+        <NavLink to="/leaderboard" className={({ isActive }) => (isActive ? "active" : "")}>
+          Leaderboard
+        </NavLink>
         <a
           href="#"
           onClick={(e) => { e.preventDefault(); handleLogout(); }}
@@ -146,6 +150,7 @@ export default function App() {
           <Route path="/trades" element={<Trades />} />
           <Route path="/performance" element={<Performance />} />
           <Route path="/journal" element={<Journal />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
         </Routes>
       </main>
     </div>

@@ -1214,6 +1214,13 @@ def run_cycle(user_id: str = "admin") -> dict:
     _state["last_update"] = datetime.now(timezone.utc).isoformat()
     _state["cycle_count"] += 1
 
+    # --- Run multi-strategy simulation ---
+    try:
+        import multi_strategy
+        multi_strategy.run_multi_cycle(price, indicators)
+    except Exception as e:
+        print(f"[multi_strategy] Error: {e}")
+
     # --- Session tracking ---
     _state["session_cycles"] += 1
     act = result["action"]
