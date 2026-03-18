@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 
-// Single source of truth for the backend URL.
-// On Render (or any deployment where frontend is served by the backend),
-// use "" (same origin). Only use localhost for local development.
-const _isLocalhost = typeof window !== "undefined" && window.location.hostname === "localhost";
-export const BASE = (
-  import.meta.env.VITE_API_URL ||
-  (_isLocalhost ? "http://localhost:8000" : "")
-).replace(/\/$/, "");
+// Backend URL: auto-detect at runtime.
+// localhost/127.0.0.1 → local dev server on port 8000
+// Anything else (Render, etc.) → same origin (empty string)
+function detectBase() {
+  if (typeof window === "undefined") return "";
+  const h = window.location.hostname;
+  if (h === "localhost" || h === "127.0.0.1") return "http://localhost:8000";
+  return ""; // same-origin: Render, production, etc.
+}
+export const BASE = detectBase();
 
 const FETCH_TIMEOUT_MS = 8000;
 
