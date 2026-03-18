@@ -181,6 +181,8 @@ def get_user_data_dir(user_id: str) -> Path:
 def get_user_file(user_id: str, filename: str) -> Path:
     """Get a specific file path within a user's data directory.
 
+    Creates the directory if it doesn't exist (safe for first-run on Render).
+
     Args:
         user_id: Username.
         filename: File name (e.g. 'portfolio.json').
@@ -188,7 +190,9 @@ def get_user_file(user_id: str, filename: str) -> Path:
     Returns:
         Full path to the file.
     """
-    return get_user_data_dir(user_id) / filename
+    user_dir = get_user_data_dir(user_id)
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir / filename
 
 
 # ---------------------------------------------------------------------------
