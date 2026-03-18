@@ -97,6 +97,7 @@ _state = {
     "last_update": "",
     "last_trade_time": 0,  # unix timestamp of last executed trade
     "indicators": {},
+    "market_state": {"state": "SLEEPING", "confidence_score": 0, "reason": "", "reasons": []},
     "cycle_count": 0,
     "error": None,
     # Session insight tracking
@@ -300,6 +301,135 @@ def compute_indicators(prices: list[float]) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Market State Detector
+# ---------------------------------------------------------------------------
+
+def detect_market_state(indicators: dict, prev_state: str = "SLEEPING") -> dict:
+    """Detect the current market state from indicators.
+
+    States:
+        SLEEPING  — dead market, no edge, don't trade
+        WAKING_UP — volatility/spread rising, prepare for entries
+        ACTIVE    — clear signals, strong entries
+        BREAKOUT  — explosive move, aggressive entries
+
+    Args:
+        indicators: From compute_indicators().
+        prev_state: Previous cycle's state (for transition detection).
+
+    Returns:
+        dict with state, confidence_score (0–100), reason, reasons list.
+    """
+    vol = indicators.get("volatility", 0)
+    rsi = indicators.get("rsi", 50)
+    ema_s = indicators.get("ema_short", 0)
+    ema_l = indicators.get("ema_long", 0)
+    slope = indicators.get("slope", 0)
+    accel = indicators.get("acceleration", 0)
+    is_spike = indicators.get("is_spike", False)
+
+    # EMA spread as % of price
+    ema_spread = abs(ema_s - ema_l) / ema_l * 100 if ema_l > 0 else 0
+
+    # RSI range — how far from neutral
+    rsi_range = abs(rsi - 50)
+
+    reasons = []
+    score = 0
+
+    # --- BREAKOUT detection (highest priority) ---
+    if is_spike or (vol > VOL_HIGH * 2 and abs(slope) > 0.3):
+        state = "BREAKOUT"
+        score = min(95, 70 + int(vol * 10000) + int(abs(slope) * 50))
+        if is_spike:
+            reasons.append("Sudden price spike detected")
+        if vol > VOL_HIGH * 2:
+            reasons.append(f"Extreme volatility ({vol:.4%})")
+        if abs(slope) > 0.3:
+            reasons.append(f"Sharp directional move ({slope:+.2f}%)")
+        if rsi_range > 20:
+            reasons.append(f"RSI stretched to {rsi:.0f}")
+
+    # --- ACTIVE market ---
+    elif vol > VOL_HIGH and ema_spread > 0.05:
+        state = "ACTIVE"
+        score = min(85, 50 + int(vol * 5000) + int(ema_spread * 200))
+        reasons.append(f"Volatility elevated ({vol:.4%})")
+        reasons.append(f"EMA spread widening ({ema_spread:.3f}%)")
+        if rsi_range > 15:
+            reasons.append(f"RSI showing conviction at {rsi:.0f}")
+        if abs(accel) > 10:
+            reasons.append("Momentum accelerating")
+
+    # --- WAKING UP ---
+    elif (vol > VOL_LOW and (ema_spread > 0.02 or rsi_range > 10 or abs(accel) > 5)):
+        state = "WAKING_UP"
+        score = min(65, 30 + int(vol * 3000) + int(ema_spread * 100) + int(rsi_range))
+        if vol > VOL_LOW:
+            reasons.append("Volatility rising from lows")
+        if ema_spread > 0.02:
+            reasons.append("EMA spread expanding")
+        if rsi_range > 10:
+            reasons.append(f"RSI drifting to {rsi:.0f}")
+        if abs(accel) > 5:
+            reasons.append("Early momentum building")
+
+    # --- SLEEPING ---
+    else:
+        state = "SLEEPING"
+        score = max(5, 20 - int(vol * 1000))
+        reasons.append("Low volatility, no conviction")
+        if rsi_range < 10:
+            reasons.append(f"RSI flat at {rsi:.0f}")
+        if ema_spread < 0.01:
+            reasons.append("EMAs compressed — no direction")
+
+    # Detect transitions
+    if prev_state != state:
+        reasons.insert(0, f"Market transitioned: {prev_state} → {state}")
+
+    # Build summary reason
+    reason_summary = ". ".join(reasons[:3]) + "." if reasons else "No data."
+
+    return {
+        "state": state,
+        "confidence_score": min(100, max(0, score)),
+        "reason": reason_summary,
+        "reasons": reasons,
+        "ema_spread": round(ema_spread, 4),
+    }
+
+
+# Market state → trading parameters
+MARKET_STATE_CONFIG = {
+    "SLEEPING": {
+        "buy_threshold": 999,    # effectively no trading
+        "sell_threshold": -999,
+        "position_pct": 0.0,
+        "allow_trade": False,
+    },
+    "WAKING_UP": {
+        "buy_threshold": 60,
+        "sell_threshold": 40,
+        "position_pct": 0.20,
+        "allow_trade": True,
+    },
+    "ACTIVE": {
+        "buy_threshold": 65,
+        "sell_threshold": 35,
+        "position_pct": 0.50,
+        "allow_trade": True,
+    },
+    "BREAKOUT": {
+        "buy_threshold": 55,
+        "sell_threshold": 45,
+        "position_pct": 0.70,
+        "allow_trade": True,
+    },
+}
+
+
+# ---------------------------------------------------------------------------
 # Adaptive Decision Engine v2
 # ---------------------------------------------------------------------------
 
@@ -406,20 +536,10 @@ def _compute_confidence(
 
 
 def generate_decision(price: float, indicators: dict, portfolio: dict) -> dict:
-    """Generate an adaptive, volatility-aware trading decision.
+    """Generate a market-state-aware trading decision.
 
-    Scoring (4 signals):
-    - EMA crossover: 35%
-    - RSI: 25%
-    - Trend (slope + momentum): 25%
-    - Momentum acceleration: 15%
-
-    Adaptive features:
-    - Dynamic thresholds based on volatility regime
-    - Momentum boost when acceleration confirms trend direction
-    - Spike filter to avoid chasing sharp moves
-    - Early trend detection for smaller exploratory entries
-    - Refined confidence from signal agreement + volatility
+    Uses the 4-state market detector (SLEEPING → WAKING → ACTIVE → BREAKOUT)
+    to dynamically adjust thresholds, position sizing, and aggressiveness.
 
     Args:
         price: Current BTC price.
@@ -427,7 +547,8 @@ def generate_decision(price: float, indicators: dict, portfolio: dict) -> dict:
         portfolio: Current portfolio state.
 
     Returns:
-        Decision dict with action, confidence, score, signals, reasoning, meta.
+        Decision dict with action, confidence, score, signals, reasoning,
+        market_state, why_reasons list, and meta.
     """
     ema_s = indicators["ema_short"]
     ema_l = indicators["ema_long"]
@@ -440,6 +561,16 @@ def generate_decision(price: float, indicators: dict, portfolio: dict) -> dict:
     trend = indicators["trend"]
     emerging = indicators.get("emerging_trend", "none")
     is_spike = indicators.get("is_spike", False)
+
+    # --- Market state detection ---
+    prev_state = _state["market_state"].get("state", "SLEEPING")
+    mkt = detect_market_state(indicators, prev_state)
+    _state["market_state"] = mkt
+    market_state = mkt["state"]
+    mkt_config = MARKET_STATE_CONFIG[market_state]
+
+    # "Why" reasoning array — records every factor
+    why = list(mkt["reasons"])  # start with market state reasons
 
     # --- Compute sub-scores ---
     ema_score = _score_ema(ema_s, ema_l)
@@ -455,17 +586,19 @@ def generate_decision(price: float, indicators: dict, portfolio: dict) -> dict:
     )
 
     # --- Momentum confirmation boost ---
-    # If acceleration confirms the trend direction, add +10 boost
     momentum_boost = 0.0
     if trend == "bullish" and acceleration > 10:
         momentum_boost = min(10.0, acceleration * 0.3)
         total_score = round(min(100, total_score + momentum_boost), 2)
+        why.append(f"Momentum confirming bullish trend (+{momentum_boost:.1f} boost)")
     elif trend == "bearish" and acceleration < -10:
         momentum_boost = min(10.0, abs(acceleration) * 0.3)
         total_score = round(max(0, total_score - momentum_boost), 2)
+        why.append(f"Momentum confirming bearish trend (-{momentum_boost:.1f} drag)")
 
-    # --- Dynamic thresholds ---
-    buy_thresh, sell_thresh = _dynamic_thresholds(vol_regime)
+    # --- Thresholds from market state ---
+    buy_thresh = float(mkt_config["buy_threshold"])
+    sell_thresh = float(mkt_config["sell_threshold"])
 
     # --- Confidence ---
     confidence = _compute_confidence(
@@ -473,25 +606,30 @@ def generate_decision(price: float, indicators: dict, portfolio: dict) -> dict:
         ema_score, rsi_score, trend_score, accel_score, vol_regime,
     )
 
+    # --- Position size from market state ---
+    pos_size = mkt_config["position_pct"]
+    # Scale by confidence within the state's range
+    if confidence > 0.7:
+        pos_size = min(pos_size * 1.3, MAX_RISK_PCT)
+
     # --- Determine raw action ---
     btc = portfolio.get("btc_holdings", 0.0)
     cash = portfolio.get("cash", 0.0)
-    is_early_entry = False
 
-    if total_score > buy_thresh and cash > 1.0:
+    if not mkt_config["allow_trade"]:
+        raw_action = "HOLD"
+        why.append(f"Market {market_state} — trading disabled")
+    elif total_score > buy_thresh and cash > 1.0:
         raw_action = "BUY"
+        why.append(f"Score {total_score:.0f} > buy threshold {buy_thresh:.0f}")
     elif total_score < sell_thresh and btc > 0.0:
         raw_action = "SELL"
-    elif emerging == "emerging_bull" and total_score > (buy_thresh - EARLY_TREND_ZONE) and cash > 1.0:
-        raw_action = "BUY"
-        is_early_entry = True
-    elif emerging == "emerging_bear" and total_score < (sell_thresh + EARLY_TREND_ZONE) and btc > 0.0:
-        raw_action = "SELL"
-        is_early_entry = True
+        why.append(f"Score {total_score:.0f} < sell threshold {sell_thresh:.0f}")
     else:
         raw_action = "HOLD"
+        why.append(f"Score {total_score:.0f} in neutral zone ({sell_thresh:.0f}–{buy_thresh:.0f})")
 
-    # --- Apply filters ---
+    # --- Apply safety filters ---
     action = raw_action
     filter_reason = ""
 
@@ -502,115 +640,80 @@ def generate_decision(price: float, indicators: dict, portfolio: dict) -> dict:
         remaining = int(COOLDOWN_SECONDS - since_last)
         filter_reason = f"Cooldown: {remaining}s remaining"
         action = "HOLD"
+        why.append(f"Filtered: cooldown active ({remaining}s left)")
 
-    # Spike filter: don't chase sharp moves
-    if action != "HOLD" and is_spike:
-        filter_reason = "Spike detected — avoiding unstable entry"
+    # Never trade below 20% confidence (safety rule)
+    if action != "HOLD" and confidence < 0.20:
+        filter_reason = f"Confidence too low ({confidence:.0%} < 20%)"
         action = "HOLD"
+        why.append(f"Filtered: confidence {confidence:.0%} below safety floor")
 
-    # Dead market filter
-    if action != "HOLD" and volatility < MIN_VOLATILITY:
-        filter_reason = f"Dead market (vol {volatility:.4%}) — no edge"
+    # Max 1 position — don't buy if already holding
+    if action == "BUY" and btc > 0.0001:
+        filter_reason = "Already in position — max 1 at a time"
         action = "HOLD"
-
-    # Sideways + weak confidence filter
-    if action != "HOLD" and trend == "sideways" and emerging == "none" and confidence < 0.55:
-        filter_reason = f"Sideways market, no emerging trend, weak confidence ({confidence:.0%})"
-        action = "HOLD"
-
-    # Minimum confidence filter
-    if action != "HOLD" and confidence < MIN_CONFIDENCE:
-        filter_reason = f"Confidence too low ({confidence:.0%} < {MIN_CONFIDENCE:.0%})"
-        action = "HOLD"
+        why.append("Filtered: already holding BTC")
 
     # --- Build trader-style reasoning ---
     parts = []
 
-    # Volatility context — trader voice
-    vol_commentary = {
-        "high": "Fast market. Spreads wide, moves sharp.",
-        "low": "Quiet tape. Thin liquidity, no conviction.",
-        "normal": "Clean price action. Normal conditions.",
-    }[vol_regime]
-    parts.append(vol_commentary)
+    # Market state context
+    state_voice = {
+        "SLEEPING": "Dead quiet. Market sleeping. No edge.",
+        "WAKING_UP": "Market stirring. Volatility rising. Getting ready.",
+        "ACTIVE": "Market alive. Clear signals. Time to act.",
+        "BREAKOUT": "Explosive move! All signals firing. Full send.",
+    }
+    parts.append(state_voice.get(market_state, "Unknown state."))
 
-    # EMA commentary
+    # Signal commentary
     if ema_score > 65:
-        parts.append("Momentum building. Buyers stepping in.")
-    elif ema_score > 55:
-        parts.append("Short-term structure tilting bullish.")
+        parts.append("Buyers stepping in.")
+        why.append("EMA bullish crossover")
     elif ema_score < 35:
-        parts.append("Sellers in control. Structure breaking down.")
-    elif ema_score < 45:
-        parts.append("Pressure mounting. Bears gaining ground.")
+        parts.append("Sellers in control.")
+        why.append("EMA bearish crossover")
 
-    # RSI commentary
-    if rsi > 75:
-        parts.append("Market stretched thin. Pullback risk elevated.")
-    elif rsi > 65:
-        parts.append("Getting heated. Watching for exhaustion.")
-    elif rsi < 25:
+    if rsi > 70:
+        parts.append("Stretched thin. Pullback risk.")
+        why.append(f"RSI overbought at {rsi:.0f}")
+    elif rsi < 30:
         parts.append("Deeply oversold. Snapback likely.")
-    elif rsi < 35:
-        parts.append("Washed out. Sellers running out of steam.")
+        why.append(f"RSI oversold at {rsi:.0f}")
 
-    # Trend commentary
     if trend == "bullish" and acceleration > 10:
-        parts.append("Strong hands buying. Trend accelerating.")
-    elif trend == "bullish":
-        parts.append("Higher lows holding. Trend intact.")
+        parts.append("Trend accelerating.")
     elif trend == "bearish" and acceleration < -10:
-        parts.append("Capitulation mode. Selling intensifying.")
-    elif trend == "bearish":
-        parts.append("Lower highs confirmed. Weakness persists.")
+        parts.append("Selling intensifying.")
 
     # Decision reasoning
     if action == "BUY":
-        if is_early_entry:
-            parts.append(f"Early positioning. Emerging strength, small size. Score {total_score:.0f}.")
-        else:
-            parts.append(f"Setup confirmed. Taking the long. Score {total_score:.0f}.")
-        if momentum_boost > 0:
-            parts.append("Momentum confirming — adding conviction.")
+        parts.append(f"Taking the long. Score {total_score:.0f}, {market_state} mode.")
+        why.append(f"BUY executed at score {total_score:.0f}")
     elif action == "SELL":
-        if is_early_entry:
-            parts.append(f"Trimming early. Cracks forming, reducing exposure. Score {total_score:.0f}.")
-        else:
-            parts.append(f"Taking profit. Exiting the position. Score {total_score:.0f}.")
-        if momentum_boost > 0:
-            parts.append("Downside accelerating — getting out.")
+        parts.append(f"Exiting position. Score {total_score:.0f}, {market_state} mode.")
+        why.append(f"SELL executed at score {total_score:.0f}")
     elif filter_reason:
-        # Translate filter reasons to trader voice
         if "Cooldown" in filter_reason:
-            parts.append(f"Signal fired but cooling off. Discipline over impulse.")
-        elif "Spike" in filter_reason or "spike" in filter_reason:
-            parts.append("Sharp move just happened. Not chasing. Let it settle.")
-        elif "Dead market" in filter_reason or "volatility" in filter_reason.lower():
-            parts.append("Nothing to trade here. Volume dead, spreads ugly.")
-        elif "Sideways" in filter_reason:
-            parts.append("Chop zone. No edge in this mess. Sitting tight.")
+            parts.append("Signal fired but cooling off.")
+        elif "position" in filter_reason.lower():
+            parts.append("Already in a trade. Holding.")
         elif "Confidence" in filter_reason:
-            parts.append("Signal's there but conviction isn't. Passing.")
+            parts.append("Not enough conviction. Passing.")
         else:
-            parts.append(f"Filtered: {filter_reason}")
-    elif 45 < total_score < 55:
-        parts.append("No man's land. Nothing to do here.")
+            parts.append(f"Skipped: {filter_reason}")
+        why.append(f"Trade filtered: {filter_reason}")
+    elif market_state == "SLEEPING":
+        parts.append("Sitting out. No setups in dead market.")
+        why.append("No trade: market SLEEPING")
     else:
-        parts.append(f"Score at {total_score:.0f}. Waiting for a cleaner setup.")
+        parts.append(f"Score {total_score:.0f}. Waiting for cleaner setup.")
+        why.append(f"Score in neutral zone ({sell_thresh:.0f}–{buy_thresh:.0f})")
 
-    # Emerging trend note
-    if emerging == "emerging_bull" and action == "HOLD":
-        parts.append("Watching closely — early bullish structure forming.")
-    elif emerging == "emerging_bear" and action == "HOLD":
-        parts.append("Heads up — bearish pattern developing.")
-
-    # --- Position sizing based on confidence ---
-    pos_size = _position_size(confidence)
-
-    # Add sizing context to reasoning
+    # Sizing context
     if action != "HOLD" and pos_size > 0:
-        size_label = {0.10: "Small", 0.25: "Medium", 0.50: "Full"}
-        parts.append(f"Sizing: {size_label.get(pos_size, f'{pos_size:.0%}')} ({pos_size:.0%} of capital).")
+        parts.append(f"Size: {pos_size:.0%} of capital.")
+        why.append(f"Position size: {pos_size:.0%} ({market_state} mode)")
 
     reasoning = " ".join(parts)
 
@@ -618,7 +721,8 @@ def generate_decision(price: float, indicators: dict, portfolio: dict) -> dict:
         "action": action,
         "confidence": confidence,
         "score": total_score,
-        "position_size": pos_size,
+        "position_size": round(pos_size, 2),
+        "market_state": mkt,
         "signals": {
             "ema": round(ema_score, 1),
             "rsi": round(rsi_score, 1),
@@ -626,6 +730,7 @@ def generate_decision(price: float, indicators: dict, portfolio: dict) -> dict:
             "momentum": round(accel_score, 1),
         },
         "reasoning": reasoning,
+        "why": why,
         "price": price,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "meta": {
@@ -633,7 +738,6 @@ def generate_decision(price: float, indicators: dict, portfolio: dict) -> dict:
             "buy_threshold": buy_thresh,
             "sell_threshold": sell_thresh,
             "momentum_boost": round(momentum_boost, 1),
-            "is_early_entry": is_early_entry,
             "is_spike": is_spike,
             "emerging_trend": emerging,
         },
@@ -1234,7 +1338,7 @@ def get_state() -> dict:
             "momentum_boost": meta.get("momentum_boost", 0),
             "is_spike": meta.get("is_spike", False),
             "emerging_trend": meta.get("emerging_trend", "none"),
-            "is_early_entry": meta.get("is_early_entry", False),
         },
+        "market_state": _state["market_state"],
         "session_insight": get_session_insight(),
     }

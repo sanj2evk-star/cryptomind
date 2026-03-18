@@ -16,19 +16,27 @@ function fmtPrice(n) {
   return `$${Number(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-/* Volatility regime badge */
-function VolBadge({ regime }) {
-  const colors = { high: "#ef4444", low: "#6b7280", normal: "#3b82f6" };
-  const labels = { high: "HIGH VOL", low: "LOW VOL", normal: "NORMAL" };
+/* Market state badge: SLEEPING / WAKING_UP / ACTIVE / BREAKOUT */
+function MarketStateBadge({ state, score }) {
+  const config = {
+    SLEEPING:   { color: "#6b7280", label: "SLEEPING",   icon: "💤" },
+    WAKING_UP:  { color: "#eab308", label: "WAKING UP",  icon: "🌅" },
+    ACTIVE:     { color: "#22c55e", label: "ACTIVE",     icon: "🟢" },
+    BREAKOUT:   { color: "#ef4444", label: "BREAKOUT",   icon: "🔥" },
+  };
+  const c = config[state] || config.SLEEPING;
   return (
     <span style={{
-      display: "inline-block", padding: "2px 8px", borderRadius: 4,
-      fontSize: 10, fontWeight: 700, letterSpacing: 0.5,
-      background: `${colors[regime] || colors.normal}22`,
-      color: colors[regime] || colors.normal,
-      border: `1px solid ${colors[regime] || colors.normal}44`,
+      display: "inline-flex", alignItems: "center", gap: 4,
+      padding: "3px 10px", borderRadius: 6,
+      fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+      background: `${c.color}22`,
+      color: c.color,
+      border: `1px solid ${c.color}44`,
     }}>
-      {labels[regime] || regime?.toUpperCase() || "—"}
+      <span style={{ fontSize: 12 }}>{c.icon}</span>
+      {c.label}
+      {score > 0 && <span style={{ opacity: 0.7, fontWeight: 400 }}>({score})</span>}
     </span>
   );
 }
@@ -98,12 +106,19 @@ export default function Dashboard() {
   const insightStats = sessionInsight.session_stats || {};
   const insightTime = sessionInsight.generated_at || "";
 
+  const mktState = live?.market_state || {};
+  const mktStateName = mktState.state || "SLEEPING";
+  const mktStateScore = mktState.confidence_score ?? 0;
+  const mktStateReason = mktState.reason || "";
+  const mktStateReasons = mktState.reasons || [];
+
   const volRegime = adaptive.vol_regime || indicators.vol_regime || "unknown";
   const buyThresh = adaptive.buy_threshold ?? 65;
   const sellThresh = adaptive.sell_threshold ?? 35;
   const momBoost = adaptive.momentum_boost ?? 0;
   const isSpike = adaptive.is_spike ?? false;
   const emergingTrend = adaptive.emerging_trend || "none";
+  const whyReasons = decision?.why || [];
   const isEarly = adaptive.is_early_entry ?? false;
 
   const trades = autoTrades?.trades || [];
@@ -114,7 +129,7 @@ export default function Dashboard() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <h1 style={{ margin: 0 }}>Dashboard</h1>
-          <VolBadge regime={volRegime} />
+          <MarketStateBadge state={mktStateName} score={mktStateScore} />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{
@@ -148,14 +163,15 @@ export default function Dashboard() {
       {lErr && live && (
         <div className="error" style={{ marginBottom: 16, fontSize: 13 }}>Refresh failed — showing last known data.</div>
       )}
-      {isSpike && (
-        <div style={{ marginBottom: 16, padding: "8px 14px", background: "#f59e0b22", border: "1px solid #f59e0b44", borderRadius: 6, fontSize: 13, color: "#f59e0b" }}>
-          Spike detected — trades paused until price stabilizes.
-        </div>
-      )}
-      {emergingTrend !== "none" && (
-        <div style={{ marginBottom: 16, padding: "8px 14px", background: "#8b5cf622", border: "1px solid #8b5cf644", borderRadius: 6, fontSize: 13, color: "#a78bfa" }}>
-          {emergingTrend === "emerging_bull" ? "Emerging bullish trend detected" : "Emerging bearish trend detected"} — watching for confirmation.
+      {/* Market State Summary */}
+      {mktStateReason && (
+        <div style={{
+          marginBottom: 16, padding: "10px 14px", borderRadius: 6, fontSize: 13,
+          background: mktStateName === "BREAKOUT" ? "#ef444422" : mktStateName === "ACTIVE" ? "#22c55e22" : mktStateName === "WAKING_UP" ? "#eab30822" : "#6b728022",
+          border: `1px solid ${mktStateName === "BREAKOUT" ? "#ef444444" : mktStateName === "ACTIVE" ? "#22c55e44" : mktStateName === "WAKING_UP" ? "#eab30844" : "#6b728044"}`,
+          color: mktStateName === "BREAKOUT" ? "#ef4444" : mktStateName === "ACTIVE" ? "#22c55e" : mktStateName === "WAKING_UP" ? "#eab308" : "#9ca3af",
+        }}>
+          <span style={{ fontWeight: 700 }}>Market: </span>{mktStateReason}
         </div>
       )}
 
