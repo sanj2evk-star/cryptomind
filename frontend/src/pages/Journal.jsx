@@ -65,6 +65,7 @@ function JournalEntry({ entry }) {
   const boost = adaptive.momentum_boost ?? 0;
   const isEarly = adaptive.is_early_entry ?? false;
   const isSpike = ind.is_spike ?? false;
+  const whyReasons = entry.why || dec.why || [];
   const emerging = ind.emerging_trend || "none";
 
   const volColors = { high: "#ef4444", low: "#6b7280", normal: "#3b82f6" };
@@ -117,6 +118,15 @@ function JournalEntry({ entry }) {
       <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5, marginBottom: 8 }}>
         {dec.reasoning || "No reasoning available."}
       </div>
+
+      {/* Why bullets */}
+      {whyReasons.length > 0 && (
+        <div style={{ marginTop: 6, marginBottom: 6, padding: "6px 8px", background: "var(--bg)", borderRadius: 4, borderLeft: "2px solid #8b5cf6" }}>
+          {whyReasons.slice(0, 4).map((r, i) => (
+            <div key={i} style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>• {r}</div>
+          ))}
+        </div>
+      )}
 
       {/* Signals + Indicators row */}
       <div style={{ display: "flex", gap: 16, fontSize: 11, color: "var(--text-muted)", flexWrap: "wrap" }}>

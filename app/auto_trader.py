@@ -957,6 +957,7 @@ def log_journal_entry(
             "confidence": decision.get("confidence", 0),
             "reasoning": decision.get("reasoning", ""),
         },
+        "why": decision.get("why", []),
         "signals": {
             "ema_score": signals.get("ema", 50),
             "rsi_score": signals.get("rsi", 50),

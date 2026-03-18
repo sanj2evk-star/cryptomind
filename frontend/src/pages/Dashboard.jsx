@@ -253,6 +253,18 @@ export default function Dashboard() {
                 {decision.reasoning}
               </div>
 
+              {/* Why I traded / held */}
+              {whyReasons.length > 0 && (
+                <div style={{ marginTop: 8, padding: "8px 10px", background: "var(--bg)", borderRadius: 4, borderLeft: "2px solid #8b5cf6" }}>
+                  <div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, marginBottom: 4, textTransform: "uppercase" }}>Why</div>
+                  {whyReasons.slice(0, 5).map((r, i) => (
+                    <div key={i} style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                      • {r}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* Signal bars */}
               {decision.signals && typeof decision.signals === "object" && !Array.isArray(decision.signals) && (
                 <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
