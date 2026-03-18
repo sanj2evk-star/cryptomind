@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 
 // Single source of truth for the backend URL.
-export const BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(
-  /\/$/,
-  ""
-);
+// On Render (or any deployment where frontend is served by the backend),
+// use "" (same origin). Only use localhost for local development.
+const _isLocalhost = typeof window !== "undefined" && window.location.hostname === "localhost";
+export const BASE = (
+  import.meta.env.VITE_API_URL ||
+  (_isLocalhost ? "http://localhost:8000" : "")
+).replace(/\/$/, "");
 
 const FETCH_TIMEOUT_MS = 8000;
 
