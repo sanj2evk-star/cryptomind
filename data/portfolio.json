@@ -1,0 +1,12 @@
+{
+  "cash": 100.0,
+  "positions": {},
+  "realized_pnl": 0.0,
+  "total_trades": 0,
+  "trades_today": 0,
+  "last_trade_date": "",
+  "last_trade_time": "",
+  "peak_equity": 100.0,
+  "consecutive_losses": 0,
+  "circuit_breaker_until": ""
+}

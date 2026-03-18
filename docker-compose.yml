@@ -1,0 +1,59 @@
+###############################################################################
+# Docker Compose — Full BTC Paper Trader stack
+#
+# Services:
+#   backend  — FastAPI on :8000 (internal)
+#   frontend — React + nginx on :3000 (public)
+#
+# Usage:
+#   cp .env.production .env     # fill in your keys
+#   docker-compose up --build   # start everything
+#   open http://localhost:3000   # access the app
+#
+# Data is persisted via the ./data volume mount.
+###############################################################################
+
+version: "3.8"
+
+services:
+  # -------------------------------------------------------------------------
+  # Backend: FastAPI + Python
+  # -------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trader-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - CORS_ORIGINS=http://localhost:3000
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: >
+        python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # -------------------------------------------------------------------------
+  # Frontend: React + nginx
+  # -------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+    container_name: trader-ui
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

@@ -1,0 +1,32 @@
+# Git
+.git
+.gitignore
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+
+# Frontend (built separately)
+frontend/
+
+# IDE
+.vscode
+.idea
+
+# Generated data (mounted as volume)
+data/cache/
+data/charts/*.png
+data/reports/*.txt
+data/q_table.json
+data/experience_buffer.json
+
+# Docs
+*.md
+LICENSE

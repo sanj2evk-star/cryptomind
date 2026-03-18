@@ -1,0 +1,10 @@
+timestamp,action,confidence,price,reason
+2026-03-18T15:08:00.935394+00:00,BUY,0.6,70000.0,Rejected BUY: confidence 0.60 < 0.65.
+2026-03-18T15:13:45.531740+00:00,SELL,0.8,71000.0,Rejected SELL: Cooldown active: 2.0h remaining (min 2h between trades).
+2026-03-18T15:13:45.534576+00:00,BUY,0.8,71000.0,Rejected BUY: Rejected: volatile market (spread 3.94% > 3% threshold).
+2026-03-18T15:37:21.995979+00:00,BUY,0.55,70000.0,Rejected BUY: confidence 0.55 < 0.65.
+2026-03-18T16:01:38.514762+00:00,BUY,0.8,71000.0,Rejected BUY BTC/USDT: position already open.
+2026-03-18T16:01:38.515976+00:00,SELL,0.8,2600.0,Rejected SELL ETH/USDT: daily trade limit (3) reached.
+2026-03-18T16:15:50.231145+00:00,BUY,0.8,70000.0,HALTED BUY BTC/USDT: Circuit breaker TRIGGERED: 3 consecutive losses >= 3 threshold.
+2026-03-18T16:15:50.231680+00:00,BUY,0.9,70000.0,HALTED BUY BTC/USDT: Circuit breaker active: 24.0h remaining.
+2026-03-18T16:15:50.232402+00:00,BUY,0.8,70000.0,HALTED BUY BTC/USDT: Circuit breaker TRIGGERED: drawdown 12.0% >= 10% threshold.

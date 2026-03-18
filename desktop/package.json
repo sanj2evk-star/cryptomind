@@ -1,0 +1,66 @@
+{
+  "name": "cryptomind",
+  "version": "1.0.0",
+  "description": "CryptoMind — AI-Powered BTC Paper Trading",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "desktop": "electron .",
+    "build:mac": "npm run build:frontend && electron-builder --mac --dir",
+    "build:frontend": "cd ../frontend && npm run build",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "build": {
+    "appId": "com.cryptomind.desktop",
+    "productName": "CryptoMind",
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": "dir",
+      "icon": "cryptomind.png"
+    },
+    "files": [
+      "main.js",
+      "loading.html",
+      "cryptomind.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../run_api.py",
+        "to": "run_api.py"
+      },
+      {
+        "from": "../app",
+        "to": "app",
+        "filter": ["**/*.py", "**/*.txt", "**/*.json", "!__pycache__/**"]
+      },
+      {
+        "from": "../frontend/dist",
+        "to": "frontend",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../prompts",
+        "to": "prompts",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../requirements.txt",
+        "to": "requirements.txt"
+      },
+      {
+        "from": "../data",
+        "to": "data",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../.env",
+        "to": ".env"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}
