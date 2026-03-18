@@ -125,33 +125,33 @@ export default function Dashboard() {
 
   return (
     <>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <h1 style={{ margin: 0 }}>Dashboard</h1>
+      {/* Header — wraps on mobile */}
+      <div className="dash-header" style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <h1 style={{ margin: 0, fontSize: "clamp(18px, 4vw, 24px)" }}>Dashboard</h1>
           <MarketStateBadge state={mktStateName} score={mktStateScore} />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{
             display: "inline-block", width: 8, height: 8, borderRadius: "50%",
-            background: running ? "var(--green)" : "var(--red)",
+            background: running ? "var(--green)" : "var(--red)", flexShrink: 0,
           }} />
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            {running ? `Auto-trading (cycle #${cycleCount})` : "Stopped"}
+          <span style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+            {running ? `Cycle #${cycleCount}` : "Stopped"}
           </span>
           <button
             onClick={refreshAll}
             disabled={refreshing}
             style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "6px 14px", background: "var(--surface)",
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "5px 12px", background: "var(--surface)",
               border: "1px solid var(--border)", borderRadius: 6,
               color: refreshing ? "var(--text-muted)" : "var(--text)",
-              fontSize: 13, cursor: refreshing ? "wait" : "pointer",
+              fontSize: 12, cursor: refreshing ? "wait" : "pointer",
+              whiteSpace: "nowrap",
             }}
           >
-            {refreshing && <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />}
-            {refreshing ? "Refreshing..." : "Refresh"}
+            {refreshing ? "..." : "↻"}
           </button>
         </div>
       </div>
