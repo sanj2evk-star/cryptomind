@@ -38,7 +38,12 @@ from user_manager import get_user_file
 # Config
 # ---------------------------------------------------------------------------
 
-BINANCE_URL = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+# Price APIs — try multiple sources (Binance blocked from US servers)
+PRICE_SOURCES = [
+    ("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", lambda d: float(d["price"])),
+    ("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", lambda d: float(d["bitcoin"]["usd"])),
+    ("https://api.coinbase.com/v2/prices/BTC-USD/spot", lambda d: float(d["data"]["amount"])),
+]
 LOOP_INTERVAL = 30   # seconds between cycles
 MAX_HISTORY = 200    # price history buffer
 MAX_RISK_PCT = 0.50  # never risk more than 50% of capital
@@ -124,14 +129,23 @@ INSIGHT_INTERVAL_CYCLES = 10  # generate insight every ~10 cycles (~5 min at 30s
 # ---------------------------------------------------------------------------
 
 def get_live_price() -> float:
-    """Fetch live BTC/USDT price from Binance public API."""
-    try:
-        with urlopen(BINANCE_URL, timeout=5) as resp:
-            data = json.loads(resp.read())
-            return float(data["price"])
-    except (URLError, KeyError, ValueError, OSError) as e:
-        _state["error"] = f"Price fetch failed: {e}"
-        return 0.0
+    """Fetch live BTC/USD price. Tries multiple APIs with fallback.
+
+    Order: Binance → CoinGecko → Coinbase.
+    Binance is fastest but blocked from US servers (HTTP 451).
+    """
+    for url, parser in PRICE_SOURCES:
+        try:
+            with urlopen(url, timeout=5) as resp:
+                data = json.loads(resp.read())
+                price = parser(data)
+                if price > 0:
+                    _state["error"] = None
+                    return price
+        except Exception:
+            continue
+    _state["error"] = "Price fetch failed: all sources unavailable"
+    return 0.0
 
 
 # ---------------------------------------------------------------------------
