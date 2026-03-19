@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, lazy, Suspense } from "react";
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { useApi } from "../hooks/useApi";
 import { useKeepAlive } from "../hooks/useKeepAlive";
 import { useTradeSound } from "../hooks/useTradeSound";
@@ -83,6 +83,9 @@ export default function Dashboard() {
   const { status: sysStatus, lastPing } = useKeepAlive();
   const { enabled: soundEnabled, toggle: toggleSound, checkTrades: checkTradeSound } = useTradeSound();
   const [refreshing, setRefreshing] = useState(false);
+  const [showHolds, setShowHolds] = useState(false);
+  const [tradeBanner, setTradeBanner] = useState(null);
+  const lastBannerTradeRef = useRef(null);
 
   const refreshAll = useCallback(() => {
     setRefreshing(true);
@@ -97,6 +100,22 @@ export default function Dashboard() {
     const t = autoTrades?.trades;
     if (t && t.length > 0) checkTradeSound(t);
   }, [autoTrades, checkTradeSound]);
+
+  // Trade banner — show subtle notification for BUY/SELL
+  useEffect(() => {
+    const t = autoTrades?.trades;
+    if (!t || t.length === 0) return;
+    const latest = t[0];
+    if (!latest || !latest.timestamp) return;
+    const action = (latest.action || "").toUpperCase();
+    if (action === "HOLD") return;
+    if (latest.timestamp === lastBannerTradeRef.current) return;
+    lastBannerTradeRef.current = latest.timestamp;
+    const price = Number(latest.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    setTradeBanner(`${action} @ $${price}`);
+    const timer = setTimeout(() => setTradeBanner(null), 3000);
+    return () => clearTimeout(timer);
+  }, [autoTrades]);
 
   if (lLoad && !live) return <><h1>Dashboard</h1><Loading message="Connecting to auto-trader..." /></>;
   if (lErr && !live) return <><h1>Dashboard</h1><ErrorBox message={lErr} onRetry={refreshAll} /></>;
@@ -141,6 +160,9 @@ export default function Dashboard() {
   const trades = autoTrades?.trades || [];
   const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
   const maxTradeRows = isTouch ? 12 : 15;
+  const buyCount = trades.filter(t => (t.action || "").toUpperCase() === "BUY").length;
+  const sellCount = trades.filter(t => (t.action || "").toUpperCase() === "SELL").length;
+  const filteredTrades = showHolds ? trades : trades.filter(t => (t.action || "").toUpperCase() !== "HOLD");
 
   return (
     <>
@@ -182,6 +204,11 @@ export default function Dashboard() {
           {/* Trade count */}
           <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
             Trades <b style={{ color: "var(--text)" }}>{totalTrades}</b>
+            {(buyCount > 0 || sellCount > 0) && (
+              <span style={{ marginLeft: 3 }}>
+                (<span style={{ color: "var(--green)" }}>B:{buyCount}</span> / <span style={{ color: "var(--red)" }}>S:{sellCount}</span>)
+              </span>
+            )}
           </span>
 
           {/* Active strategies count */}
@@ -213,6 +240,18 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* ── Trade banner (subtle, auto-fade) ── */}
+      {tradeBanner && (
+        <div style={{
+          marginBottom: 4, padding: "5px 12px", borderRadius: 4, fontSize: 12,
+          background: tradeBanner.startsWith("BUY") ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+          color: tradeBanner.startsWith("BUY") ? "#22c55e" : "#ef4444",
+          opacity: 0.85, transition: "opacity 0.5s",
+        }}>
+          {tradeBanner}
+        </div>
+      )}
 
       {/* ── Alerts (compact) ── */}
       {liveError && <div className="error" style={{ marginBottom: 6, fontSize: 11, padding: "6px 10px" }}>⚠ {liveError}</div>}
@@ -386,8 +425,17 @@ export default function Dashboard() {
 
         {/* Right: Auto-Trades — fixed height, scrollable */}
         <div>
-          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>Recent Auto-Trades</div>
-          {trades.length > 0 ? (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>Recent Auto-Trades</span>
+            <button onClick={() => setShowHolds(h => !h)} style={{
+              padding: "2px 8px", border: "none", borderRadius: 3, fontSize: 9, fontWeight: 600, cursor: "pointer",
+              background: showHolds ? "var(--surface)" : "var(--bg)",
+              color: showHolds ? "var(--text)" : "var(--text-muted)",
+            }}>
+              {showHolds ? "All" : "Trades Only"}
+            </button>
+          </div>
+          {filteredTrades.length > 0 ? (
             <div className="table-wrap" style={{ maxHeight: isTouch ? 260 : 280, overflowY: "auto" }}>
               <table style={{ fontSize: 11 }}>
                 <thead>
@@ -401,11 +449,17 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {trades.slice(0, maxTradeRows).map((t, i) => {
+                  {filteredTrades.slice(0, maxTradeRows).map((t, i) => {
                     const pnl = parseFloat(t.pnl) || 0;
                     const action = (t.action || "HOLD").toUpperCase();
+                    const isHold = action === "HOLD";
+                    const isBuy = action === "BUY";
+                    const isSell = action === "SELL";
                     return (
-                      <tr key={i}>
+                      <tr key={i} style={{
+                        opacity: isHold ? 0.4 : 1,
+                        background: isBuy ? "rgba(34,197,94,0.04)" : isSell ? "rgba(239,68,68,0.04)" : "transparent",
+                      }}>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px", fontSize: 10 }}>{fmtLocalTimeShort(t.timestamp)}</td>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}><span className={`tag ${action.toLowerCase()}`}>{action}</span></td>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{fmtPrice(t.price)}</td>
