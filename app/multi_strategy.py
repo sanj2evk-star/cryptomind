@@ -464,11 +464,17 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     accel_score = _score_acceleration(accel)
     total_score = round(ema_score * W_EMA + rsi_score * W_RSI + trend_score * W_TREND + accel_score * W_MOMENTUM, 2)
 
-    buy_t = profile["buy_threshold"]
-    sell_t = profile["sell_threshold"]
+    # ── Dynamic Hold Zone: narrow thresholds when market regime improves ──
+    base_buy_t = profile["buy_threshold"]
+    base_sell_t = profile["sell_threshold"]
+    regime = mkt.get("state", "SLEEPING") if isinstance(mkt, dict) else str(mkt)
+    hold_zone_adj = {"SLEEPING": 0, "WAKING_UP": -3, "ACTIVE": -5, "BREAKOUT": -7}.get(regime, 0)
+    buy_t = base_buy_t + hold_zone_adj        # lower buy threshold in active markets
+    sell_t = base_sell_t - hold_zone_adj       # raise sell threshold in active markets
     confidence = round(min(abs(total_score - (buy_t + sell_t) / 2) / 50, 0.95), 2)
     reasons = []
     entry_met = False  # track if native entry condition was met
+    is_probe = False   # probe entry flag
 
     btc = s["btc_holdings"]
     global_cash = _portfolio["total_cash"]
@@ -586,6 +592,54 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
             entry_met = True
             reasons.append(f"Score {total_score:.0f} <= {sell_t}")
 
+    # ══════════════════════════════════════════════════════════
+    # BREAK-HOLD / PROBE ENTRY (only for experimental strategies still in HOLD)
+    # ══════════════════════════════════════════════════════════
+    probe_eligible = name in ("INTUITIVE", "EXPERIMENTAL", "SCALPER", "MEAN_REVERTER")
+    if action == "HOLD" and probe_eligible and btc < 0.0001 and available_cash > 0.3:
+        # Count improving signals
+        improving = 0
+        break_reasons = []
+        if vol > 0.0001 and regime in ("WAKING_UP", "ACTIVE", "BREAKOUT"):
+            improving += 1
+            break_reasons.append("vol rising")
+        if abs(ema_short - ema_long) / max(ema_long, 1) * 100 > 0.005:
+            improving += 1
+            break_reasons.append("EMA expanding")
+        if accel > 2:
+            improving += 1
+            break_reasons.append(f"accel={accel:.1f}")
+        if (rsi < 42 and momentum > 0) or (rsi > 58 and momentum < 0):
+            improving += 1
+            break_reasons.append(f"RSI={rsi:.0f} turning")
+        if regime != "SLEEPING":
+            improving += 0.5
+            break_reasons.append(f"regime={regime}")
+
+        # Track consecutive improving cycles per strategy
+        prev_score = s.get("_prev_score", total_score)
+        if total_score > prev_score + 0.5:
+            improving += 0.5
+            break_reasons.append("score improving")
+        s["_prev_score"] = total_score
+
+        # Safety: don't probe if recent regime performance is poor
+        regime_safe = True
+        try:
+            import adaptive_learner
+            rp = adaptive_learner._regime_performance.get(name, {}).get(regime, {})
+            if rp.get("trades", 0) >= 3 and rp.get("wins", 0) / rp.get("trades", 1) < 0.25:
+                regime_safe = False
+        except Exception:
+            pass
+
+        # Probe entry: need 2.5+ improving signals + regime safe + confidence not rock-bottom
+        if improving >= 2.5 and regime_safe and confidence > 0.03:
+            action = "BUY"
+            is_probe = True
+            entry_met = True
+            reasons.append(f"Probe BUY: {' + '.join(break_reasons[:3])}")
+
     # Log why NOT trading (for debugging)
     if action == "HOLD" and not entry_met:
         hold_reason = []
@@ -629,7 +683,9 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     # ── Execute against GLOBAL portfolio ──
     pnl = 0.0
     if action == "BUY":
-        spend = available_cash * profile["position_pct"]
+        # Probe entries use smaller position (5-8% instead of normal)
+        pos_pct = 0.06 if is_probe else profile["position_pct"]
+        spend = available_cash * pos_pct
         spend = min(spend, _portfolio["total_cash"] * 0.3)  # cap at 30% of total cash per trade
         spend = min(spend, _portfolio["total_cash"] - 1.0)  # keep $1 reserve
         if spend < 0.1:
@@ -696,6 +752,8 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
             "pnl": round(pnl, 6), "score": total_score,
             "confidence": confidence, "market_state": mkt,
             "strategy": name,
+            "entry_type": "probe" if is_probe else "full",
+            "hold_zone_adj": hold_zone_adj,
             "indicators": {
                 "rsi": round(indicators.get("rsi", 0), 1),
                 "trend": indicators.get("trend", "unknown"),
