@@ -7,6 +7,7 @@ import { Loading, ErrorBox, EmptyState } from "../components/StatusMessage";
 import MetricCard from "../components/MetricCard";
 import TradesTable from "../components/TradesTable";
 import SimpleEquityChart from "../components/SimpleEquityChart";
+import PortfolioDrawer from "../components/PortfolioDrawer";
 const BTCChart = lazy(() => import("../components/BTCChart"));
 
 const TZ_LABEL = getTimezoneLabel();
@@ -93,6 +94,8 @@ export default function Dashboard() {
     catch { return false; }
   });
   const [highlightRow, setHighlightRow] = useState(null); // timestamp of row to highlight
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { data: lbData } = useApi("/leaderboard", 10000);
 
   const refreshAll = useCallback(() => {
     setRefreshing(true);
@@ -253,6 +256,12 @@ export default function Dashboard() {
               color: proMode ? "#fff" : "var(--text-muted)",
             }}>Pro</button>
           </div>
+
+          {/* Portfolio Manager */}
+          <button onClick={() => setDrawerOpen(true)} style={{
+            padding: "3px 8px", background: "var(--surface)", border: "1px solid var(--border)",
+            borderRadius: 4, color: "#a78bfa", fontSize: 10, fontWeight: 600, cursor: "pointer",
+          }}>Portfolio</button>
 
           {/* Sound toggle */}
           <button onClick={toggleSound} title={soundEnabled ? "Mute sounds" : "Enable sounds"} style={{
@@ -586,6 +595,15 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Portfolio Manager Drawer */}
+      <PortfolioDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        leaderboard={lbData}
+        adaptive={adaptive}
+        live={live}
+      />
     </>
   );
 }

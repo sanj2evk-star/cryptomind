@@ -361,16 +361,60 @@ def _check_kill_revive(price: float):
         # --- REVIVE checks (only auto-killed, not manually paused) ---
         elif s["status"] == "INACTIVE" and s.get("killed_at_cycle", 0) > 0:
             cycles_since = _cycle_count - s["killed_at_cycle"]
+            last_revive = s.get("last_revive_cycle", 0)
+            revive_cooldown_met = (_cycle_count - last_revive) > 60  # min 60 cycles between revives
             mkt = _last_market_state.get("state", "SLEEPING")
+            prev_mkt = s.get("_prev_market", "SLEEPING")
+            profile = PROFILES.get(name, {})
 
-            if cycles_since >= REVIVE_COOLDOWN:
+            revive = False
+            reason = ""
+
+            # A. Market regime changed + strategy fits new regime
+            if revive_cooldown_met and mkt != prev_mkt:
+                regime_fit = profile.get("regimes", [])
+                if mkt in regime_fit:
+                    revive = True
+                    reason = f"Market → {mkt} (strategy fits this regime)"
+
+            # B. Volatility shift matches strategy type
+            if not revive and revive_cooldown_met:
+                vol = _last_market_state.get("volatility", 0)
+                if name in ("BREAKOUT_SNIPER", "AGGRESSIVE") and mkt in ("BREAKOUT", "ACTIVE"):
+                    revive = True
+                    reason = f"Volatility rising, {mkt} detected"
+                elif name in ("MEAN_REVERTER", "MONK", "DEFENSIVE") and mkt == "SLEEPING":
+                    revive = True
+                    reason = f"Low volatility SLEEPING market suits {name}"
+
+            # C. Cooling period passed
+            if not revive and cycles_since >= REVIVE_COOLDOWN and revive_cooldown_met:
+                revive = True
+                reason = f"Cooldown passed ({cycles_since} cycles)"
+
+            # D. Portfolio imbalance — too few active strategies
+            if not revive and revive_cooldown_met:
+                active_count = sum(1 for n, st in _strategies.items() if st["status"] in ("ACTIVE", "LEADING"))
+                if active_count < 3:
+                    revive = True
+                    reason = f"Only {active_count} active strategies — rebalancing"
+
+            if revive:
                 s["status"] = "ACTIVE"
                 s["consecutive_losses"] = 0
-                _log_event("strategy_revived", strategy=name, reason=f"Cooldown passed ({cycles_since} cycles)")
-            elif mkt in ("BREAKOUT", "ACTIVE") and s.get("_prev_market") == "SLEEPING":
-                s["status"] = "ACTIVE"
-                s["consecutive_losses"] = 0
-                _log_event("strategy_revived", strategy=name, reason=f"Market changed to {mkt}")
+                s["last_revive_cycle"] = _cycle_count
+                # Start with small allocation (5%)
+                _allocations[name] = 0.05
+                _log_event("strategy_revived", strategy=name, reason=reason)
+                # Also log to adaptive learner
+                try:
+                    import adaptive_learner
+                    adaptive_learner._log_adaptation({
+                        "type": "auto_revive", "strategy": name, "reason": reason,
+                        "regime": mkt, "cycles_inactive": cycles_since,
+                    })
+                except Exception:
+                    pass
 
         s["_prev_market"] = _last_market_state.get("state", "SLEEPING")
 
