@@ -47,7 +47,7 @@ function SignalBar({ label, value, weight }) {
   const v = Number(value ?? 50);
   const color = v > 60 ? "var(--green)" : v < 40 ? "var(--red)" : "var(--text-muted)";
   return (
-    <div style={{ flex: 1, padding: "3px 6px", background: "var(--bg)", borderRadius: 3 }}>
+    <div style={{ flex: 1, padding: isTouch ? "7px 10px" : "3px 6px", background: "var(--bg)", borderRadius: 3 }}>
       <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 2 }}>
         {label} <span style={{ opacity: 0.5 }}>{weight}</span>
       </div>
@@ -63,12 +63,13 @@ function SignalBar({ label, value, weight }) {
   );
 }
 
-/* Inline metric — ultra compact, single line */
+/* Inline metric — responsive single line */
+const _isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
 function InlineMetric({ label, value, color }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "3px 0" }}>
-      <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</span>
-      <span style={{ fontSize: 13, fontWeight: 600, color: color || "var(--text)" }}>{value}</span>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: _isTouch ? "5px 0" : "3px 0" }}>
+      <span style={{ fontSize: _isTouch ? 12 : 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</span>
+      <span style={{ fontSize: _isTouch ? 15 : 13, fontWeight: 600, color: color || "var(--text)" }}>{value}</span>
     </div>
   );
 }
@@ -210,7 +211,7 @@ export default function Dashboard() {
       )}
 
       {/* ── Top metrics strip ── */}
-      <div className="metric-strip" style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+      <div className="metric-strip" style={{ display: "flex", gap: isTouch ? 5 : 6, marginBottom: isTouch ? 5 : 6, flexWrap: "wrap" }}>
         {[
           { label: "BTC", value: fmtPrice(price) },
           { label: "Equity", value: fmt(equity) },
@@ -221,10 +222,10 @@ export default function Dashboard() {
         ].map((m) => (
           <div key={m.label} className="metric-card" style={{
             flex: "1 1 130px", background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 6, padding: "18px 16px",
+            borderRadius: 6, padding: isTouch ? "16px 14px" : "18px 16px",
           }}>
-            <div className="metric-label" style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>{m.label}</div>
-            <div className="metric-value" style={{ fontSize: 22, fontWeight: 600, color: m.color || "var(--text)" }}>{m.value}</div>
+            <div className="metric-label" style={{ fontSize: isTouch ? 11 : 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: isTouch ? 5 : 4 }}>{m.label}</div>
+            <div className="metric-value" style={{ fontSize: isTouch ? 20 : 22, fontWeight: 600, color: m.color || "var(--text)" }}>{m.value}</div>
           </div>
         ))}
       </div>
@@ -240,14 +241,14 @@ export default function Dashboard() {
       </Suspense>
 
       {/* ── AI Decision | Holdings | Indicators — 3-col ── */}
-      <div className="panel-grid" style={{ display: "grid", gridTemplateColumns: "5fr 3fr 3fr", gap: 6, marginBottom: 6 }}>
+      <div className="panel-grid" style={{ display: "grid", gridTemplateColumns: "5fr 3fr 3fr", gap: isTouch ? 6 : 6, marginBottom: isTouch ? 6 : 6 }}>
 
         {/* Column 1: AI Decision + Insight stacked */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {/* AI Decision */}
-          <div className="card" style={{ padding: "10px 12px" }}>
+          <div className="card" style={{ padding: isTouch ? "14px 16px" : "10px 12px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>AI Decision</span>
+              <span style={{ fontSize: isTouch ? 12 : 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>AI Decision</span>
               {isEarly && <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 2, background: "#8b5cf633", color: "#a78bfa" }}>EARLY</span>}
             </div>
             {!decision ? (
@@ -316,8 +317,8 @@ export default function Dashboard() {
         </div>
 
         {/* Column 2: Holdings */}
-        <div className="card" style={{ padding: "10px 12px" }}>
-          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>Holdings</div>
+        <div className="card" style={{ padding: isTouch ? "14px 16px" : "10px 12px" }}>
+          <div style={{ fontSize: isTouch ? 12 : 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>Holdings</div>
           <InlineMetric label="Cash" value={fmt(cash)} />
           <InlineMetric label="BTC" value={btc.toFixed(6)} />
           <InlineMetric label="Avg Entry" value={avgEntry > 0 ? fmtPrice(avgEntry) : "—"} />
@@ -328,8 +329,8 @@ export default function Dashboard() {
         </div>
 
         {/* Column 3: Indicators */}
-        <div className="card" style={{ padding: "10px 12px" }}>
-          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>Indicators</div>
+        <div className="card" style={{ padding: isTouch ? "14px 16px" : "10px 12px" }}>
+          <div style={{ fontSize: isTouch ? 12 : 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>Indicators</div>
           <InlineMetric label="EMA 9" value={indicators.ema_short ? fmtPrice(indicators.ema_short) : "—"} />
           <InlineMetric label="EMA 21" value={indicators.ema_long ? fmtPrice(indicators.ema_long) : "—"} />
           <InlineMetric label="RSI(14)" value={indicators.rsi?.toFixed(1) || "—"} color={indicators.rsi > 70 ? "var(--red)" : indicators.rsi < 30 ? "var(--green)" : undefined} />
@@ -347,7 +348,7 @@ export default function Dashboard() {
           {/* Insight */}
           {insightText && (
             <div className="insight-card" style={{
-              padding: "8px 12px", borderRadius: 5,
+              padding: isTouch ? "12px 16px" : "8px 12px", borderRadius: 5,
               background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "3px solid #8b5cf6",
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -374,12 +375,12 @@ export default function Dashboard() {
               <table style={{ fontSize: 11 }}>
                 <thead>
                   <tr>
-                    <th style={{ padding: "3px 6px" }}>Time</th>
-                    <th style={{ padding: "3px 6px" }}>Action</th>
-                    <th style={{ padding: "3px 6px" }}>Price</th>
-                    <th style={{ padding: "3px 6px" }}>P&L</th>
-                    <th style={{ padding: "3px 6px" }}>Score</th>
-                    <th style={{ padding: "3px 6px" }}>Conf</th>
+                    <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Time</th>
+                    <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Action</th>
+                    <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Price</th>
+                    <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>P&L</th>
+                    <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Score</th>
+                    <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Conf</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -388,12 +389,12 @@ export default function Dashboard() {
                     const action = (t.action || "HOLD").toUpperCase();
                     return (
                       <tr key={i}>
-                        <td style={{ padding: "2px 6px", fontSize: 10 }}>{fmtLocalTimeShort(t.timestamp)}</td>
-                        <td style={{ padding: "2px 6px" }}><span className={`tag ${action.toLowerCase()}`}>{action}</span></td>
-                        <td style={{ padding: "2px 6px" }}>{fmtPrice(t.price)}</td>
-                        <td style={{ padding: "2px 6px", color: pnl >= 0 ? "var(--green)" : "var(--red)" }}>{fmt(pnl)}</td>
-                        <td style={{ padding: "2px 6px" }}>{t.score ?? "—"}</td>
-                        <td style={{ padding: "2px 6px" }}>{((parseFloat(t.confidence) || 0) * 100).toFixed(0)}%</td>
+                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px", fontSize: 10 }}>{fmtLocalTimeShort(t.timestamp)}</td>
+                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}><span className={`tag ${action.toLowerCase()}`}>{action}</span></td>
+                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{fmtPrice(t.price)}</td>
+                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px", color: pnl >= 0 ? "var(--green)" : "var(--red)" }}>{fmt(pnl)}</td>
+                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{t.score ?? "—"}</td>
+                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{((parseFloat(t.confidence) || 0) * 100).toFixed(0)}%</td>
                       </tr>
                     );
                   })}
