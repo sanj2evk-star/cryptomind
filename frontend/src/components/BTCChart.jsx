@@ -54,6 +54,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
     try { return localStorage.getItem(CHART_STORAGE_KEY) !== "false"; }
     catch { return true; }
   });
+  const [expanded, setExpanded] = useState(false); // iPad expand/collapse
 
   const dataRef = useRef(null);
   const pollRef = useRef(null);
@@ -100,7 +101,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
     const isSimple = chartMode === "simple";
     const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
     const vh = window.innerHeight;
-    const chartHeight = (isTouch && vh <= 1100) ? 200 : 340;
+    const chartHeight = (isTouch && vh <= 1100) ? (expanded ? 340 : 200) : 340;
 
     try {
       const chart = createChart(container, {
@@ -120,7 +121,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
           vertLine: { color: "rgba(255,255,255,0.08)", width: 1, style: 3, labelVisible: true },
           horzLine: { color: "rgba(255,255,255,0.08)", width: 1, style: 3, labelVisible: true },
         },
-        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.08 }, entireTextOnly: true },
+        rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.12 }, entireTextOnly: true },
         timeScale: { borderVisible: false, timeVisible: true, secondsVisible: tf === "1m", rightOffset: 3 },
         handleScroll: { mouseWheel: true, pressedMouseMove: true },
         handleScale: { mouseWheel: true, pinch: true },
@@ -287,7 +288,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
     currentTfRef.current = null;
     fetchCandles(interval, mode);
     return () => { destroyChart(); };
-  }, [interval, mode, chartVisible, fetchCandles, destroyChart]);
+  }, [interval, mode, chartVisible, expanded, fetchCandles, destroyChart]);
 
   // ── Polling → incremental update (no jitter) ──
   useEffect(() => {
@@ -338,6 +339,17 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
             {chartVisible ? "📈 ON" : "📈 OFF"}
           </button>
 
+          {/* Expand/Collapse — touch devices only */}
+          {chartVisible && ("ontouchstart" in window || navigator.maxTouchPoints > 0) && (
+            <button onClick={() => { setExpanded(e => !e); currentModeRef.current = null; }} title={expanded ? "Shrink chart" : "Expand chart"} style={{
+              padding: "3px 8px", border: "none", borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: "pointer",
+              background: expanded ? "var(--surface)" : "var(--bg)",
+              color: expanded ? "var(--text)" : "var(--text-muted)",
+            }}>
+              {expanded ? "⊟ Shrink" : "⊞ Expand"}
+            </button>
+          )}
+
           {/* Mode toggle */}
           {chartVisible && (
             <div style={{ display: "flex", gap: 1, background: "var(--bg)", borderRadius: 4, padding: 1 }}>
@@ -369,7 +381,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
       {/* Chart body */}
       {chartVisible && (
         USE_SVG_FALLBACK ? (
-          <div style={{ padding: "0 4px", height: 180, overflow: "hidden" }}>
+          <div style={{ padding: "0 4px", height: expanded ? 340 : 180, overflow: "hidden", transition: "height 0.3s ease" }}>
             {loading && (
               <div style={{ height: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 <div className="spinner" />
@@ -377,7 +389,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
               </div>
             )}
             {!loading && dataRef.current && (
-              <SafariChart candles={dataRef.current.candles} ema9={dataRef.current.ema9} ema21={dataRef.current.ema21} height={180} />
+              <SafariChart candles={dataRef.current.candles} ema9={dataRef.current.ema9} ema21={dataRef.current.ema21} height={expanded ? 340 : 180} />
             )}
             {!loading && !dataRef.current && (
               <div style={{ height: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
@@ -391,7 +403,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
           </div>
         ) : (
           <>
-            <div style={{ position: "relative", height: 340, overflow: "hidden" }}>
+            <div style={{ position: "relative", height: expanded ? 340 : (("ontouchstart" in window || navigator.maxTouchPoints > 0) && window.innerHeight <= 1100 ? 200 : 340), overflow: "hidden", transition: "height 0.3s ease" }}>
               {loading && !lastCandle && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
                   <div className="spinner" />
