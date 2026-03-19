@@ -86,6 +86,11 @@ export default function Dashboard() {
   const [showHolds, setShowHolds] = useState(false);
   const [tradeBanner, setTradeBanner] = useState(null);
   const lastBannerTradeRef = useRef(null);
+  const [proMode, setProMode] = useState(() => {
+    try { return localStorage.getItem("cryptomind_pro_mode") === "true"; }
+    catch { return false; }
+  });
+  const [highlightRow, setHighlightRow] = useState(null); // timestamp of row to highlight
 
   const refreshAll = useCallback(() => {
     setRefreshing(true);
@@ -101,7 +106,16 @@ export default function Dashboard() {
     if (t && t.length > 0) checkTradeSound(t);
   }, [autoTrades, checkTradeSound]);
 
-  // Trade banner — show subtle notification for BUY/SELL
+  // Toggle pro mode
+  const toggleProMode = useCallback(() => {
+    setProMode(prev => {
+      const next = !prev;
+      try { localStorage.setItem("cryptomind_pro_mode", String(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  // Trade banner + row highlight for BUY/SELL
   useEffect(() => {
     const t = autoTrades?.trades;
     if (!t || t.length === 0) return;
@@ -113,9 +127,10 @@ export default function Dashboard() {
     lastBannerTradeRef.current = latest.timestamp;
     const price = Number(latest.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     setTradeBanner(`${action} @ $${price}`);
-    const timer = setTimeout(() => setTradeBanner(null), 3000);
+    if (proMode) setHighlightRow(latest.timestamp);
+    const timer = setTimeout(() => { setTradeBanner(null); setHighlightRow(null); }, 3000);
     return () => clearTimeout(timer);
-  }, [autoTrades]);
+  }, [autoTrades, proMode]);
 
   if (lLoad && !live) return <><h1>Dashboard</h1><Loading message="Connecting to auto-trader..." /></>;
   if (lErr && !live) return <><h1>Dashboard</h1><ErrorBox message={lErr} onRetry={refreshAll} /></>;
@@ -159,7 +174,7 @@ export default function Dashboard() {
 
   const trades = autoTrades?.trades || [];
   const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
-  const maxTradeRows = isTouch ? 12 : 15;
+  const maxTradeRows = proMode ? (isTouch ? 14 : 18) : (isTouch ? 12 : 15);
   const buyCount = trades.filter(t => (t.action || "").toUpperCase() === "BUY").length;
   const sellCount = trades.filter(t => (t.action || "").toUpperCase() === "SELL").length;
   const filteredTrades = showHolds ? trades : trades.filter(t => (t.action || "").toUpperCase() !== "HOLD");
@@ -223,6 +238,20 @@ export default function Dashboard() {
             </span>
           )}
 
+          {/* Simple / Pro toggle */}
+          <div style={{ display: "flex", gap: 1, background: "var(--bg)", borderRadius: 4, padding: 1 }}>
+            <button onClick={() => proMode && toggleProMode()} style={{
+              padding: "3px 8px", border: "none", borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: "pointer",
+              background: !proMode ? "var(--surface)" : "transparent",
+              color: !proMode ? "var(--text)" : "var(--text-muted)",
+            }}>Simple</button>
+            <button onClick={() => !proMode && toggleProMode()} style={{
+              padding: "3px 8px", border: "none", borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: "pointer",
+              background: proMode ? "#3b82f6" : "transparent",
+              color: proMode ? "#fff" : "var(--text-muted)",
+            }}>Pro</button>
+          </div>
+
           {/* Sound toggle */}
           <button onClick={toggleSound} title={soundEnabled ? "Mute sounds" : "Enable sounds"} style={{
             padding: "3px 8px", background: "var(--surface)", border: "1px solid var(--border)",
@@ -241,15 +270,18 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Trade banner (subtle, auto-fade) ── */}
+      {/* ── Trade banner (subtle in Simple, prominent in Pro) ── */}
       {tradeBanner && (
         <div style={{
-          marginBottom: 4, padding: "5px 12px", borderRadius: 4, fontSize: 12,
-          background: tradeBanner.startsWith("BUY") ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+          marginBottom: 4, padding: proMode ? "6px 14px" : "5px 12px", borderRadius: 4,
+          fontSize: proMode ? 13 : 12, fontWeight: proMode ? 600 : 400,
+          background: tradeBanner.startsWith("BUY") ? (proMode ? "rgba(34,197,94,0.18)" : "rgba(34,197,94,0.1)") : (proMode ? "rgba(239,68,68,0.18)" : "rgba(239,68,68,0.1)"),
           color: tradeBanner.startsWith("BUY") ? "#22c55e" : "#ef4444",
-          opacity: 0.85, transition: "opacity 0.5s",
+          opacity: proMode ? 1 : 0.85,
+          borderLeft: proMode ? `3px solid ${tradeBanner.startsWith("BUY") ? "#22c55e" : "#ef4444"}` : "none",
+          transition: "all 0.3s ease",
         }}>
-          {tradeBanner}
+          {proMode ? `⚡ ${tradeBanner}` : tradeBanner}
         </div>
       )}
 
@@ -436,7 +468,7 @@ export default function Dashboard() {
             </button>
           </div>
           {filteredTrades.length > 0 ? (
-            <div className="table-wrap" style={{ maxHeight: isTouch ? 260 : 280, overflowY: "auto" }}>
+            <div className="table-wrap" style={{ maxHeight: proMode ? (isTouch ? 300 : 340) : (isTouch ? 260 : 280), overflowY: "auto" }}>
               <table style={{ fontSize: 11 }}>
                 <thead>
                   <tr>
@@ -455,10 +487,16 @@ export default function Dashboard() {
                     const isHold = action === "HOLD";
                     const isBuy = action === "BUY";
                     const isSell = action === "SELL";
+                    const isHighlighted = proMode && highlightRow === t.timestamp;
                     return (
                       <tr key={i} style={{
                         opacity: isHold ? 0.4 : 1,
-                        background: isBuy ? "rgba(34,197,94,0.04)" : isSell ? "rgba(239,68,68,0.04)" : "transparent",
+                        background: isHighlighted
+                          ? (isBuy ? "rgba(34,197,94,0.15)" : isSell ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.1)")
+                          : proMode
+                            ? (isBuy ? "rgba(34,197,94,0.08)" : isSell ? "rgba(239,68,68,0.08)" : "transparent")
+                            : (isBuy ? "rgba(34,197,94,0.04)" : isSell ? "rgba(239,68,68,0.04)" : "transparent"),
+                        transition: "background 0.5s ease",
                       }}>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px", fontSize: 10 }}>{fmtLocalTimeShort(t.timestamp)}</td>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}><span className={`tag ${action.toLowerCase()}`}>{action}</span></td>
