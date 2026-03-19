@@ -219,16 +219,16 @@ export default function Dashboard() {
         ].map((m) => (
           <div key={m.label} className="metric-card" style={{
             flex: "1 1 130px", background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 5, padding: "14px 14px",
+            borderRadius: 6, padding: "18px 16px",
           }}>
-            <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 3 }}>{m.label}</div>
-            <div className="metric-value" style={{ fontSize: 20, fontWeight: 600, color: m.color || "var(--text)" }}>{m.value}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>{m.label}</div>
+            <div className="metric-value" style={{ fontSize: 22, fontWeight: 600, color: m.color || "var(--text)" }}>{m.value}</div>
           </div>
         ))}
       </div>
 
       {/* ── BTC Chart (HERO — preserved height) ── */}
-      <Suspense fallback={<div className="card" style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", marginBottom: 6 }}>Loading chart...</div>}>
+      <Suspense fallback={<div className="card" style={{ height: 340, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", marginBottom: 6 }}>Loading chart...</div>}>
         <BTCChart
           marketState={mktStateName}
           action={decision?.action}
@@ -381,7 +381,7 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {trades.slice(0, 10).map((t, i) => {
+                  {trades.slice(0, 15).map((t, i) => {
                     const pnl = parseFloat(t.pnl) || 0;
                     const action = (t.action || "HOLD").toUpperCase();
                     return (

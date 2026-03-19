@@ -371,8 +371,8 @@ tr:last-child td {
   .sidebar__label { display: inline; }
 }
 
-/* ---------- iPad Pro / tablets with limited height (landscape) ---------- */
-@media (min-width: 1000px) and (max-height: 1100px) {
+/* ---------- iPad Pro / tablets with limited height (touch + landscape) ---------- */
+@media (min-width: 1000px) and (max-height: 1100px) and (pointer: coarse) {
   .content {
     padding: 10px 16px;
   }

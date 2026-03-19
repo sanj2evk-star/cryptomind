@@ -49,10 +49,10 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
     const pctChange = ((last.close - first.open) / first.open * 100);
     setPriceChange(pctChange);
 
-    // Responsive chart height based on viewport height
+    // Responsive chart height — compact only on touch devices (iPad)
+    const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
     const vh = window.innerHeight;
-    const vw = window.innerWidth;
-    const chartHeight = vh <= 1100 ? 200 : vw <= 1400 ? 260 : 340;
+    const chartHeight = (isTouch && vh <= 1100) ? 200 : 340;
 
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
@@ -283,7 +283,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
       </div>
 
       {/* Chart */}
-      <div style={{ position: "relative", minHeight: 200 }}>
+      <div style={{ position: "relative", minHeight: 240 }}>
         {loading && !lastCandle && (
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
             <div className="spinner" />
