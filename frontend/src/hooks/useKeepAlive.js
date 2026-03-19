@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 
-const API = import.meta.env.VITE_API_URL || (
-  typeof window !== "undefined" &&
-  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-    ? "http://localhost:8000"
-    : ""
-);
+function _detectApi() {
+  if (typeof window === "undefined") return "";
+  const h = window.location.hostname;
+  if (h === "localhost" || h === "127.0.0.1") return "http://localhost:8000";
+  return "";
+}
+const API = _detectApi();
 
 const PING_INTERVAL_MS = 4 * 60 * 1000; // 4 minutes
 

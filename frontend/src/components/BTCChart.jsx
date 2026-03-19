@@ -2,7 +2,14 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createChart, ColorType, CrosshairMode, CandlestickSeries, LineSeries, AreaSeries } from "lightweight-charts";
 import SafariChart from "./SafariChart";
 
-const API = import.meta.env.VITE_API_URL || window.location.origin;
+// Use same-origin detection as useApi — never hardcode localhost
+function _detectApi() {
+  if (typeof window === "undefined") return "";
+  const h = window.location.hostname;
+  if (h === "localhost" || h === "127.0.0.1") return "http://localhost:8000";
+  return ""; // same-origin for Render, iPad, production
+}
+const API = _detectApi();
 
 // Detect touch Safari (iPad, iPhone) — use pure SVG fallback
 // iPadOS 13+ spoofs "Macintosh" in UA, so we check touch + WebKit + no Chrome
