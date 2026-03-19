@@ -382,6 +382,18 @@ def get_leaderboard():
         return {"error": str(e), "leaderboard": [], "strategies": {}}
 
 
+@app.get("/candles")
+def get_candles(interval: str = Query(default="5m")):
+    """BTC/USDT candle data for charting. No auth required."""
+    if interval not in ("1m", "5m", "15m", "1h"):
+        interval = "5m"
+    try:
+        import candle_fetcher
+        return candle_fetcher.fetch_candles(interval=interval, with_ema=True)
+    except Exception as e:
+        return {"candles": [], "ema9": [], "ema21": [], "source": "error", "interval": interval, "count": 0, "error": str(e)}
+
+
 @app.get("/strategy-events")
 def get_strategy_events(limit: int = Query(default=50, ge=1, le=200)):
     """Strategy engine events (switches, kills, revivals, reallocations)."""

@@ -1,10 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, lazy, Suspense } from "react";
 import { useApi } from "../hooks/useApi";
 import { fmtLocalTime, fmtLocalTimeShort, getTimezoneLabel } from "../hooks/useTime";
 import { Loading, ErrorBox, EmptyState } from "../components/StatusMessage";
 import MetricCard from "../components/MetricCard";
 import TradesTable from "../components/TradesTable";
 import SimpleEquityChart from "../components/SimpleEquityChart";
+const BTCChart = lazy(() => import("../components/BTCChart"));
 
 const TZ_LABEL = getTimezoneLabel();
 
@@ -183,7 +184,17 @@ export default function Dashboard() {
         <MetricCard label="Trades" value={`${totalTrades} total`} />
       </div>
 
-      {/* Row 2: AI Decision + Holdings */}
+      {/* Row 2: BTC Price Chart */}
+      <Suspense fallback={<div className="card" style={{ height: 380, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", marginBottom: 24 }}>Loading chart...</div>}>
+        <BTCChart
+          marketState={mktStateName}
+          action={decision?.action}
+          confidence={Number(decision?.confidence ?? 0)}
+          livePrice={price}
+        />
+      </Suspense>
+
+      {/* Row 3: AI Decision + Holdings */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
 
         {/* AI Decision */}
