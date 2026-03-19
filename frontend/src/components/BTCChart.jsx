@@ -114,7 +114,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
     const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
     const vh = window.innerHeight;
     const isExpanded = expandedRef.current;
-    const chartHeight = (isTouch && vh <= 1100) ? (isExpanded ? 340 : 200) : 340;
+    const chartHeight = (isTouch && vh <= 1100) ? (isExpanded ? 520 : 200) : 340;
 
     try {
       const chart = createChart(container, {
@@ -395,7 +395,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
       {/* Chart body */}
       {chartVisible && (
         USE_SVG_FALLBACK ? (
-          <div style={{ padding: "0 4px", height: expanded ? 340 : 180, overflow: "hidden", transition: "height 0.3s ease" }}>
+          <div style={{ padding: "0 4px", height: expanded ? 520 : 180, overflow: "hidden", transition: "height 0.3s ease" }}>
             {loading && (
               <div style={{ height: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 <div className="spinner" />
@@ -403,7 +403,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
               </div>
             )}
             {!loading && dataRef.current && (
-              <SafariChart candles={dataRef.current.candles} ema9={dataRef.current.ema9} ema21={dataRef.current.ema21} height={expanded ? 340 : 180} />
+              <SafariChart candles={dataRef.current.candles} ema9={dataRef.current.ema9} ema21={dataRef.current.ema21} height={expanded ? 520 : 180} />
             )}
             {!loading && !dataRef.current && (
               <div style={{ height: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
@@ -417,7 +417,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
           </div>
         ) : (
           <>
-            <div style={{ position: "relative", height: expanded ? 340 : (("ontouchstart" in window || navigator.maxTouchPoints > 0) && window.innerHeight <= 1100 ? 200 : 340), overflow: "hidden", transition: "height 0.3s ease" }}>
+            <div style={{ position: "relative", height: expanded ? 520 : (("ontouchstart" in window || navigator.maxTouchPoints > 0) && window.innerHeight <= 1100 ? 200 : 340), overflow: "hidden", transition: "height 0.3s ease" }}>
               {loading && !lastCandle && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
                   <div className="spinner" />

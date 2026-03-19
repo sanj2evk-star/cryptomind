@@ -30,13 +30,35 @@ function SafariChartInner({ candles, ema9, ema21, height = 200 }) {
   const padding = { top: 10, right: 60, bottom: 24, left: 10 };
   const closes = candles.map(c => c.close);
   const times = candles.map(c => c.time);
-  const rawMin = Math.min(...closes);
-  const rawMax = Math.max(...closes);
-  const rawRange = rawMax - rawMin || 1;
-  // Add 15% padding so current price is never at the edge
-  const minP = rawMin - rawRange * 0.15;
-  const maxP = rawMax + rawRange * 0.15;
-  const priceRange = maxP - minP;
+
+  const currentPrice = closes[closes.length - 1];
+  const allMin = Math.min(...closes);
+  const allMax = Math.max(...closes);
+  const fullRange = allMax - allMin || 1;
+
+  // Smart Y-axis: always center around current price
+  // Show equal distance above and below current price
+  // Use the larger of: recent volatility or 2% of price
+  const recentCloses = closes.slice(-Math.min(30, closes.length));
+  const recentMin = Math.min(...recentCloses);
+  const recentMax = Math.max(...recentCloses);
+  const recentRange = recentMax - recentMin || currentPrice * 0.01;
+
+  // Visible range = max of (recent range * 1.5) or (full range if small)
+  const visibleHalf = Math.max(recentRange * 1.2, currentPrice * 0.015);
+
+  // Center on current price
+  let minP = currentPrice - visibleHalf;
+  let maxP = currentPrice + visibleHalf;
+
+  // But also show the full line if range is small enough to fit
+  if (fullRange < visibleHalf * 3) {
+    // Small range — show everything with padding
+    minP = Math.min(minP, allMin - fullRange * 0.1);
+    maxP = Math.max(maxP, allMax + fullRange * 0.1);
+  }
+
+  const priceRange = maxP - minP || 1;
 
   const first = closes[0];
   const last = closes[closes.length - 1];
