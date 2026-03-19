@@ -14,199 +14,230 @@ function fmtPrice(n) {
   return `$${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function log(...args) {
+  console.log("[BTCChart]", ...args);
+}
+
 export default function BTCChart({ marketState, action, confidence, livePrice }) {
   const chartRef = useRef(null);
   const containerRef = useRef(null);
-  const mainSeriesRef = useRef(null);
-  const ema9Ref = useRef(null);
-  const ema21Ref = useRef(null);
   const observerRef = useRef(null);
   const [interval, setInterval_] = useState("5m");
-  const [mode, setMode] = useState("simple"); // "simple" or "pro"
+  const [mode, setMode] = useState("simple");
   const [source, setSource] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastCandle, setLastCandle] = useState(null);
   const [priceChange, setPriceChange] = useState(0);
+  const [chartError, setChartError] = useState(null);
   const pollRef = useRef(null);
+  const dataRef = useRef(null); // store last good data for retry
 
+  // ── Destroy chart safely ──
+  const destroyChart = useCallback(() => {
+    try {
+      if (observerRef.current) { observerRef.current.disconnect(); observerRef.current = null; }
+      if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
+    } catch (_) { /* ignore */ }
+  }, []);
+
+  // ── Build chart with Safari safety ──
   const buildChart = useCallback((data, tf, chartMode) => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) { log("No container ref"); return; }
 
-    // Destroy old
-    if (observerRef.current) { observerRef.current.disconnect(); observerRef.current = null; }
-    if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
+    // Safari fix: wait for container to have real dimensions
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    log(`Container: ${cw}x${ch}`);
+
+    if (cw < 50) {
+      log("Container too narrow, retrying in 200ms...");
+      setTimeout(() => buildChart(data, tf, chartMode), 200);
+      return;
+    }
+
+    destroyChart();
 
     const candles = data.candles || [];
-    if (!candles.length) return;
+    if (!candles.length) { log("No candles"); return; }
 
     const isSimple = chartMode === "simple";
     const first = candles[0];
     const last = candles[candles.length - 1];
     const rising = last.close >= first.open;
+    setPriceChange((last.close - first.open) / first.open * 100);
 
-    // Price change %
-    const pctChange = ((last.close - first.open) / first.open * 100);
-    setPriceChange(pctChange);
-
-    // Responsive chart height — compact only on touch devices (iPad)
+    // Height: smaller on touch devices with limited viewport
     const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
     const vh = window.innerHeight;
     const chartHeight = (isTouch && vh <= 1100) ? 200 : 340;
 
-    const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth,
-      height: chartHeight,
-      layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#6b728066",
-        fontSize: 10,
-      },
-      grid: {
-        vertLines: { visible: isSimple ? false : true, color: "rgba(255,255,255,0.03)" },
-        horzLines: { color: isSimple ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)" },
-      },
-      crosshair: {
-        mode: CrosshairMode.Magnet,
-        vertLine: { color: "rgba(255,255,255,0.08)", width: 1, style: 3, labelVisible: true },
-        horzLine: { color: "rgba(255,255,255,0.08)", width: 1, style: 3, labelVisible: true },
-      },
-      rightPriceScale: {
-        borderVisible: false,
-        scaleMargins: { top: 0.08, bottom: 0.08 },
-        entireTextOnly: true,
-      },
-      timeScale: {
-        borderVisible: false,
-        timeVisible: true,
-        secondsVisible: tf === "1m",
-        rightOffset: 3,
-      },
-      handleScroll: { mouseWheel: true, pressedMouseMove: true },
-      handleScale: { mouseWheel: true, pinch: true },
-    });
+    try {
+      log(`Creating chart: ${cw}x${chartHeight}, mode=${chartMode}, candles=${candles.length}`);
 
-    chartRef.current = chart;
-
-    if (isSimple) {
-      // ── SIMPLE MODE: Area chart with gradient ──
-      const lineColor = rising ? "#22c55e" : "#ef4444";
-      const lineData = candles.map(c => ({ time: c.time, value: c.close }));
-
-      const area = chart.addSeries(AreaSeries, {
-        lineColor: lineColor,
-        lineWidth: 2,
-        topColor: rising ? "rgba(34, 197, 94, 0.25)" : "rgba(239, 68, 68, 0.20)",
-        bottomColor: rising ? "rgba(34, 197, 94, 0.01)" : "rgba(239, 68, 68, 0.01)",
-        priceLineVisible: true,
-        priceLineColor: lineColor,
-        priceLineWidth: 1,
-        lastValueVisible: true,
-        crosshairMarkerVisible: true,
-        crosshairMarkerRadius: 4,
-        crosshairMarkerBackgroundColor: lineColor,
+      const chart = createChart(container, {
+        width: cw,
+        height: chartHeight,
+        layout: {
+          background: { type: ColorType.Solid, color: "transparent" },
+          textColor: "#6b728066",
+          fontSize: 10,
+        },
+        grid: {
+          vertLines: { visible: !isSimple, color: "rgba(255,255,255,0.03)" },
+          horzLines: { color: isSimple ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)" },
+        },
+        crosshair: {
+          mode: CrosshairMode.Magnet,
+          vertLine: { color: "rgba(255,255,255,0.08)", width: 1, style: 3, labelVisible: true },
+          horzLine: { color: "rgba(255,255,255,0.08)", width: 1, style: 3, labelVisible: true },
+        },
+        rightPriceScale: {
+          borderVisible: false,
+          scaleMargins: { top: 0.08, bottom: 0.08 },
+          entireTextOnly: true,
+        },
+        timeScale: {
+          borderVisible: false,
+          timeVisible: true,
+          secondsVisible: tf === "1m",
+          rightOffset: 3,
+        },
+        handleScroll: { mouseWheel: true, pressedMouseMove: true },
+        handleScale: { mouseWheel: true, pinch: true },
       });
-      area.setData(lineData);
-      mainSeriesRef.current = area;
 
-      // Thin EMA overlays in simple mode
-      if (data.ema9?.length > 0) {
-        const ema9 = chart.addSeries(LineSeries, {
-          color: "rgba(59, 130, 246, 0.4)",
-          lineWidth: 1,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      chartRef.current = chart;
+
+      if (isSimple) {
+        const lineColor = rising ? "#22c55e" : "#ef4444";
+        const lineData = candles.map(c => ({ time: c.time, value: c.close }));
+
+        const area = chart.addSeries(AreaSeries, {
+          lineColor,
+          lineWidth: 2,
+          topColor: rising ? "rgba(34, 197, 94, 0.25)" : "rgba(239, 68, 68, 0.20)",
+          bottomColor: rising ? "rgba(34, 197, 94, 0.01)" : "rgba(239, 68, 68, 0.01)",
+          priceLineVisible: true,
+          priceLineColor: lineColor,
+          priceLineWidth: 1,
+          lastValueVisible: true,
+          crosshairMarkerVisible: true,
+          crosshairMarkerRadius: 4,
+          crosshairMarkerBackgroundColor: lineColor,
         });
-        ema9.setData(data.ema9);
-        ema9Ref.current = ema9;
-      }
-      if (data.ema21?.length > 0) {
-        const ema21 = chart.addSeries(LineSeries, {
-          color: "rgba(245, 158, 11, 0.35)",
-          lineWidth: 1,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        area.setData(lineData);
+
+        if (data.ema9?.length > 0) {
+          const s = chart.addSeries(LineSeries, { color: "rgba(59,130,246,0.4)", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+          s.setData(data.ema9);
+        }
+        if (data.ema21?.length > 0) {
+          const s = chart.addSeries(LineSeries, { color: "rgba(245,158,11,0.35)", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+          s.setData(data.ema21);
+        }
+      } else {
+        const cs = chart.addSeries(CandlestickSeries, {
+          upColor: "#22c55e", downColor: "#ef4444",
+          borderUpColor: "#22c55e", borderDownColor: "#ef4444",
+          wickUpColor: "#22c55e88", wickDownColor: "#ef444488",
         });
-        ema21.setData(data.ema21);
-        ema21Ref.current = ema21;
+        cs.setData(candles);
+
+        if (data.ema9?.length > 0) {
+          const s = chart.addSeries(LineSeries, { color: "#3b82f6", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+          s.setData(data.ema9);
+        }
+        if (data.ema21?.length > 0) {
+          const s = chart.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+          s.setData(data.ema21);
+        }
       }
 
-    } else {
-      // ── PRO MODE: Candlesticks with EMA overlays ──
-      const candle = chart.addSeries(CandlestickSeries, {
-        upColor: "#22c55e",
-        downColor: "#ef4444",
-        borderUpColor: "#22c55e",
-        borderDownColor: "#ef4444",
-        wickUpColor: "#22c55e88",
-        wickDownColor: "#ef444488",
-      });
-      candle.setData(candles);
-      mainSeriesRef.current = candle;
+      chart.timeScale().fitContent();
+      setLastCandle(last);
+      setChartError(null);
+      log("Chart rendered OK");
 
-      if (data.ema9?.length > 0) {
-        const ema9 = chart.addSeries(LineSeries, {
-          color: "#3b82f6", lineWidth: 1,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      // Resize — Safari safe with try/catch
+      try {
+        const obs = new ResizeObserver((entries) => {
+          try {
+            for (const entry of entries) {
+              if (chartRef.current && entry.contentRect.width > 50) {
+                chartRef.current.applyOptions({ width: entry.contentRect.width });
+              }
+            }
+          } catch (_) { /* ignore resize errors */ }
         });
-        ema9.setData(data.ema9);
-        ema9Ref.current = ema9;
+        obs.observe(container);
+        observerRef.current = obs;
+      } catch (_) {
+        log("ResizeObserver not available, using fallback");
+        // Fallback: listen to window resize
+        const onResize = () => {
+          if (chartRef.current && container.clientWidth > 50) {
+            chartRef.current.applyOptions({ width: container.clientWidth });
+          }
+        };
+        window.addEventListener("resize", onResize);
+        observerRef.current = { disconnect: () => window.removeEventListener("resize", onResize) };
       }
-      if (data.ema21?.length > 0) {
-        const ema21 = chart.addSeries(LineSeries, {
-          color: "#f59e0b", lineWidth: 1,
-          priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-        });
-        ema21.setData(data.ema21);
-        ema21Ref.current = ema21;
-      }
+
+    } catch (err) {
+      log("Chart creation FAILED:", err.message);
+      setChartError(err.message);
     }
+  }, [destroyChart]);
 
-    chart.timeScale().fitContent();
-    setLastCandle(last);
-
-    // Resize
-    const obs = new ResizeObserver((entries) => {
-      for (const entry of entries) chart.applyOptions({ width: entry.contentRect.width });
-    });
-    if (containerRef.current) obs.observe(containerRef.current);
-    observerRef.current = obs;
-  }, []);
-
+  // ── Fetch candle data ──
   const fetchCandles = useCallback(async (tf, chartMode) => {
     try {
       setLoading(true);
       setError(null);
-      const resp = await fetch(`${API}/candles?interval=${tf}`);
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+
+      const resp = await fetch(`${API}/candles?interval=${tf}`, { signal: controller.signal });
+      clearTimeout(timer);
+
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
 
       if (!data.candles?.length) {
-        setError("No data");
+        setError("No data available");
         setLoading(false);
         return;
       }
 
+      log(`Got ${data.candles.length} candles from ${data.source}`);
       setSource(data.source || "");
-      buildChart(data, tf, chartMode);
-      setLoading(false);
+      dataRef.current = data;
+
+      // Safari fix: use requestAnimationFrame to ensure DOM is ready
+      requestAnimationFrame(() => {
+        buildChart(data, tf, chartMode);
+        setLoading(false);
+      });
     } catch (err) {
-      setError(err.message);
+      log("Fetch error:", err.message);
+      setError(err.name === "AbortError" ? "Timeout" : err.message);
       setLoading(false);
     }
   }, [buildChart]);
 
-  // Load on interval or mode change
+  // ── Load on interval/mode change ──
   useEffect(() => {
     fetchCandles(interval, mode);
-    return () => {
-      if (observerRef.current) observerRef.current.disconnect();
-      if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
-    };
-  }, [interval, mode, fetchCandles]);
+    return () => { destroyChart(); };
+  }, [interval, mode, fetchCandles, destroyChart]);
 
-  // Polling + auto-retry on error
+  // ── Polling + auto-retry ──
   useEffect(() => {
     const normalMs = { "1m": 15000, "5m": 30000, "15m": 60000, "1h": 120000 }[interval] || 30000;
-    const ms = error ? 10000 : normalMs; // retry every 10s on error
+    const ms = error ? 10000 : normalMs;
     pollRef.current = window.setInterval(() => fetchCandles(interval, mode), ms);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [interval, mode, fetchCandles, error]);
@@ -222,13 +253,10 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
         display: "flex", justifyContent: "space-between", alignItems: "center",
         padding: "10px 14px", flexWrap: "wrap", gap: 6,
       }}>
-        {/* Left: pair + price + change */}
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>BTC/USDT</span>
           {livePrice > 0 && (
-            <span style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
-              {fmtPrice(livePrice)}
-            </span>
+            <span style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>{fmtPrice(livePrice)}</span>
           )}
           {priceChange !== 0 && (
             <span style={{ fontSize: 12, fontWeight: 600, color: changeColor }}>
@@ -236,44 +264,27 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
             </span>
           )}
         </div>
-
-        {/* Right: badges + mode toggle + timeframes */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {marketState && (
-            <span style={{
-              fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 3,
-              background: `${stateColors[marketState] || "#666"}22`,
-              color: stateColors[marketState] || "#666",
-            }}>{marketState}</span>
+            <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 3, background: `${stateColors[marketState] || "#666"}22`, color: stateColors[marketState] || "#666" }}>{marketState}</span>
           )}
           {action && (
-            <span style={{
-              fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 3,
-              background: `${actionColors[action] || "#666"}22`,
-              color: actionColors[action] || "#666",
-            }}>{action}</span>
+            <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 5px", borderRadius: 3, background: `${actionColors[action] || "#666"}22`, color: actionColors[action] || "#666" }}>{action}</span>
           )}
-
           {source && <span style={{ fontSize: 8, color: "var(--text-muted)", opacity: 0.4 }}>{source}</span>}
-
-          {/* Mode toggle */}
           <div style={{ display: "flex", gap: 1, background: "var(--bg)", borderRadius: 4, padding: 1 }}>
             {[{ l: "Simple", v: "simple" }, { l: "Pro", v: "pro" }].map(m => (
               <button key={m.v} onClick={() => setMode(m.v)} style={{
-                padding: "3px 8px", border: "none", borderRadius: 3,
-                fontSize: 10, fontWeight: 600, cursor: "pointer",
+                padding: "3px 8px", border: "none", borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: "pointer",
                 background: mode === m.v ? "var(--surface)" : "transparent",
                 color: mode === m.v ? "var(--text)" : "var(--text-muted)",
               }}>{m.l}</button>
             ))}
           </div>
-
-          {/* Timeframes */}
           <div style={{ display: "flex", gap: 1, background: "var(--bg)", borderRadius: 4, padding: 1 }}>
             {TIMEFRAMES.map(tf => (
               <button key={tf.value} onClick={() => setInterval_(tf.value)} style={{
-                padding: "3px 8px", border: "none", borderRadius: 3,
-                fontSize: 10, fontWeight: 600, cursor: "pointer",
+                padding: "3px 8px", border: "none", borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: "pointer",
                 background: interval === tf.value ? "var(--surface)" : "transparent",
                 color: interval === tf.value ? "var(--text)" : "var(--text-muted)",
               }}>{tf.label}</button>
@@ -282,15 +293,15 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
         </div>
       </div>
 
-      {/* Chart */}
-      <div style={{ position: "relative", minHeight: 240 }}>
+      {/* Chart body */}
+      <div style={{ position: "relative", minHeight: 200 }}>
         {loading && !lastCandle && (
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
             <div className="spinner" />
             <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Connecting to market data...</span>
           </div>
         )}
-        {error && !lastCandle && (
+        {(error || chartError) && !lastCandle && (
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
             <div className="spinner" />
             <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Reconnecting to market data...</span>
@@ -301,10 +312,9 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
             }}>Retry now</button>
           </div>
         )}
-        <div ref={containerRef} style={{ width: "100%" }} />
+        <div ref={containerRef} style={{ width: "100%", minHeight: 200 }} />
       </div>
 
-      {/* Legend — only in Pro mode */}
       {mode === "pro" && (
         <div style={{ display: "flex", gap: 12, padding: "4px 14px 8px", fontSize: 9, color: "var(--text-muted)" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
