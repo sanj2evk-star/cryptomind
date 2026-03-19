@@ -25,10 +25,14 @@ export default function SimpleEquityChart({ equity }) {
   const max = Math.max(...points.map((p) => p.value));
   const pad = (max - min) * 0.1 || 0.01;
 
+  // Taller equity chart on iPad to fill space
+  const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+  const eqHeight = isTouch ? 150 : 180;
+
   return (
     <div className="chart-wrap">
-      <h3>Equity Curve</h3>
-      <ResponsiveContainer width="100%" height={180}>
+      <h3 style={{ fontSize: 12, marginBottom: 4 }}>Equity Curve</h3>
+      <ResponsiveContainer width="100%" height={eqHeight}>
         <LineChart data={points} margin={{ top: 5, right: 16, bottom: 5, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
           <XAxis

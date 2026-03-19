@@ -371,15 +371,15 @@ tr:last-child td {
   .sidebar__label { display: inline; }
 }
 
-/* ---------- iPad Pro / tablets with limited height (touch + landscape) ---------- */
-@media (min-width: 1000px) and (max-height: 1100px) and (pointer: coarse) {
+/* ---------- iPad Pro / tablets (touch + wide screen) ---------- */
+@media (pointer: coarse) and (min-width: 1000px) {
   .content {
-    padding: 10px 16px;
+    padding: 8px 14px;
   }
 
   .content h1 {
     font-size: 16px;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   .card {
@@ -391,32 +391,115 @@ tr:last-child td {
   }
 
   .card .label {
-    font-size: 9px;
+    font-size: 10px;
   }
 
   table {
-    font-size: 11px;
+    font-size: 12px;
   }
 
   th, td {
-    padding: 3px 6px;
+    padding: 4px 8px;
   }
 
   .section {
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   .chart-wrap {
     padding: 6px;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
+  }
+
+  /* Dashboard-specific tablet overrides */
+  .dash-header {
+    margin-bottom: 4px !important;
+  }
+
+  .market-banner {
+    margin-bottom: 3px !important;
+    padding: 3px 10px !important;
+  }
+
+  .metric-strip {
+    gap: 4px !important;
+    margin-bottom: 4px !important;
   }
 
   .metric-strip .metric-card {
-    padding: 10px 12px !important;
+    padding: 8px 10px !important;
   }
 
   .metric-strip .metric-value {
-    font-size: 17px !important;
+    font-size: 16px !important;
+  }
+
+  .metric-strip .metric-card .metric-label {
+    font-size: 9px !important;
+    margin-bottom: 2px !important;
+  }
+
+  /* 3-col panel grid */
+  .panel-grid {
+    gap: 4px !important;
+    margin-bottom: 4px !important;
+  }
+
+  /* Bottom row */
+  .bottom-grid {
+    gap: 4px !important;
+    margin-bottom: 0 !important;
+  }
+
+  /* Insight */
+  .insight-card {
+    padding: 6px 10px !important;
+  }
+
+  /* Equity chart wrapper */
+  .chart-wrap {
+    padding: 4px !important;
+    margin-bottom: 0 !important;
+  }
+
+  /* Collapsed sidebar for iPad Pro landscape too */
+  .sidebar {
+    width: 52px;
+    padding: 14px 6px;
+    align-items: center;
+  }
+
+  .sidebar.sidebar--open {
+    width: 170px;
+    align-items: stretch;
+    padding: 14px 10px;
+  }
+
+  .sidebar__label {
+    display: none;
+  }
+
+  .sidebar.sidebar--open .sidebar__label {
+    display: inline;
+  }
+
+  .sidebar a {
+    justify-content: center;
+    padding: 10px 6px;
+  }
+
+  .sidebar.sidebar--open a {
+    justify-content: flex-start;
+    padding: 10px 12px;
+  }
+
+  .sidebar__icon {
+    font-size: 18px;
+  }
+
+  .sidebar h2, .sidebar__title {
+    font-size: 12px;
+    text-align: center;
   }
 }
 

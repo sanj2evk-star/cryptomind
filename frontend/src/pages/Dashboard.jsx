@@ -130,11 +130,13 @@ export default function Dashboard() {
   const isEarly = adaptive.is_early_entry ?? false;
 
   const trades = autoTrades?.trades || [];
+  const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+  const maxTradeRows = isTouch ? 6 : 15;
 
   return (
     <>
       {/* ── Header bar ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+      <div className="dash-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
         {/* Left: title + market badge */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Dashboard</h1>
@@ -198,7 +200,7 @@ export default function Dashboard() {
       {/* ── Alerts (compact) ── */}
       {liveError && <div className="error" style={{ marginBottom: 6, fontSize: 11, padding: "6px 10px" }}>⚠ {liveError}</div>}
       {mktStateReason && (
-        <div style={{
+        <div className="market-banner" style={{
           marginBottom: 4, padding: "4px 10px", borderRadius: 4, fontSize: 11,
           background: mktStateName === "BREAKOUT" ? "#ef444418" : mktStateName === "ACTIVE" ? "#22c55e18" : mktStateName === "WAKING_UP" ? "#eab30818" : "#6b728018",
           color: mktStateName === "BREAKOUT" ? "#ef4444" : mktStateName === "ACTIVE" ? "#22c55e" : mktStateName === "WAKING_UP" ? "#eab308" : "#9ca3af",
@@ -221,7 +223,7 @@ export default function Dashboard() {
             flex: "1 1 130px", background: "var(--surface)", border: "1px solid var(--border)",
             borderRadius: 6, padding: "18px 16px",
           }}>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>{m.label}</div>
+            <div className="metric-label" style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>{m.label}</div>
             <div className="metric-value" style={{ fontSize: 22, fontWeight: 600, color: m.color || "var(--text)" }}>{m.value}</div>
           </div>
         ))}
@@ -237,8 +239,8 @@ export default function Dashboard() {
         />
       </Suspense>
 
-      {/* ── AI Decision+Insight | Holdings | Indicators — 3-col ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "5fr 3fr 3fr", gap: 6, marginBottom: 6 }}>
+      {/* ── AI Decision | Holdings | Indicators — 3-col ── */}
+      <div className="panel-grid" style={{ display: "grid", gridTemplateColumns: "5fr 3fr 3fr", gap: 6, marginBottom: 6 }}>
 
         {/* Column 1: AI Decision + Insight stacked */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -338,13 +340,13 @@ export default function Dashboard() {
       </div>
 
       {/* ── Insight + Equity (left) | Auto-Trades (right) ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 6, marginBottom: 6 }}>
+      <div className="bottom-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 6, marginBottom: 6 }}>
 
         {/* Left: Insight + Equity stacked */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {/* Insight */}
           {insightText && (
-            <div style={{
+            <div className="insight-card" style={{
               padding: "8px 12px", borderRadius: 5,
               background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "3px solid #8b5cf6",
             }}>
@@ -381,7 +383,7 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {trades.slice(0, 15).map((t, i) => {
+                  {trades.slice(0, maxTradeRows).map((t, i) => {
                     const pnl = parseFloat(t.pnl) || 0;
                     const action = (t.action || "HOLD").toUpperCase();
                     return (
