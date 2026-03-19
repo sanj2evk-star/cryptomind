@@ -261,8 +261,8 @@ export default function Dashboard() {
 
         {/* Column 1: AI Decision + Insight stacked */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {/* AI Decision */}
-          <div className="card" style={{ padding: isTouch ? "14px 16px" : "10px 12px" }}>
+          {/* AI Decision — flex:1 to fill gap above Insight */}
+          <div className="card" style={{ padding: isTouch ? "14px 16px" : "10px 12px", flex: 1 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <span style={{ fontSize: isTouch ? 12 : 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>AI Decision</span>
               {isEarly && <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 2, background: "#8b5cf633", color: "#a78bfa" }}>EARLY</span>}
