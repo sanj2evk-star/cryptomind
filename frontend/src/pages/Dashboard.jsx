@@ -47,7 +47,7 @@ function SignalBar({ label, value, weight }) {
   const v = Number(value ?? 50);
   const color = v > 60 ? "var(--green)" : v < 40 ? "var(--red)" : "var(--text-muted)";
   return (
-    <div style={{ flex: 1, padding: isTouch ? "7px 10px" : "3px 6px", background: "var(--bg)", borderRadius: 3 }}>
+    <div style={{ flex: 1, padding: _isTouch ? "5px 8px" : "3px 6px", background: "var(--bg)", borderRadius: 3 }}>
       <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 2 }}>
         {label} <span style={{ opacity: 0.5 }}>{weight}</span>
       </div>
