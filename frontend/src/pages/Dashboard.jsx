@@ -179,10 +179,10 @@ export default function Dashboard() {
         ].map((m) => (
           <div key={m.label} style={{
             flex: "1 1 140px", background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 5, padding: "10px 14px",
+            borderRadius: 6, padding: "14px 16px",
           }}>
-            <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>{m.label}</div>
-            <div style={{ fontSize: 18, fontWeight: 600, color: m.color || "var(--text)", marginTop: 2 }}>{m.value}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>{m.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 600, color: m.color || "var(--text)" }}>{m.value}</div>
           </div>
         ))}
       </div>
