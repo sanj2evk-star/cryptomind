@@ -69,6 +69,7 @@ _portfolio = {
 _strategies: dict[str, dict] = {}
 _leaderboard: list[dict] = []
 _cycle_count = 0
+_probe_this_cycle = 0  # track: only 1 probe entry per cycle
 _last_market_state = {"state": "SLEEPING", "confidence_score": 0, "reason": ""}
 _primary_strategy = "HUNTER"
 _last_switch_cycle = 0
@@ -603,25 +604,41 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
         if vol > 0.0001 and regime in ("WAKING_UP", "ACTIVE", "BREAKOUT"):
             improving += 1
             break_reasons.append("vol rising")
-        if abs(ema_short - ema_long) / max(ema_long, 1) * 100 > 0.005:
-            improving += 1
+        if abs(ema_short - ema_long) / max(ema_long, 1) * 100 > 0.003:
+            improving += 0.7
             break_reasons.append("EMA expanding")
-        if accel > 2:
-            improving += 1
+        if accel > 1.5:
+            improving += 0.7
             break_reasons.append(f"accel={accel:.1f}")
-        if (rsi < 42 and momentum > 0) or (rsi > 58 and momentum < 0):
-            improving += 1
+        if (rsi < 45 and momentum > 0) or (rsi > 55 and momentum < 0):
+            improving += 0.7
             break_reasons.append(f"RSI={rsi:.0f} turning")
         if regime != "SLEEPING":
             improving += 0.5
             break_reasons.append(f"regime={regime}")
 
+        # Early momentum trigger: price above EMA + accel improving + RSI >50
+        if ema_short > ema_long and accel > 0.5 and 50 < rsi < 65:
+            improving += 0.8
+            break_reasons.append("early momentum")
+
         # Track consecutive improving cycles per strategy
         prev_score = s.get("_prev_score", total_score)
-        if total_score > prev_score + 0.5:
+        if total_score > prev_score + 0.3:
             improving += 0.5
             break_reasons.append("score improving")
         s["_prev_score"] = total_score
+
+        # First-move rule: regime just transitioned from SLEEPING
+        prev_regime = s.get("_prev_regime", "SLEEPING")
+        if prev_regime == "SLEEPING" and regime in ("WAKING_UP", "ACTIVE", "BREAKOUT"):
+            if not s.get("_first_move_used", False):
+                improving += 1.0
+                break_reasons.append(f"first move: {prev_regime}→{regime}")
+                s["_first_move_used"] = True
+        if regime == "SLEEPING":
+            s["_first_move_used"] = False  # reset when market goes back to sleep
+        s["_prev_regime"] = regime
 
         # Safety: don't probe if recent regime performance is poor
         regime_safe = True
@@ -633,11 +650,16 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
         except Exception:
             pass
 
-        # Probe entry: need 2.5+ improving signals + regime safe + confidence not rock-bottom
-        if improving >= 2.5 and regime_safe and confidence > 0.03:
+        # Limit: only 1 strategy can probe per cycle (prevent all triggering at once)
+        global _probe_this_cycle
+        cycle_key = _cycle_count
+
+        # Probe entry: need 2.0+ improving signals + regime safe
+        if improving >= 2.0 and regime_safe and confidence > 0.02 and _probe_this_cycle != cycle_key:
             action = "BUY"
             is_probe = True
             entry_met = True
+            _probe_this_cycle = cycle_key  # mark: one probe per cycle
             reasons.append(f"Probe BUY: {' + '.join(break_reasons[:3])}")
 
     # Log why NOT trading (for debugging)
@@ -683,8 +705,8 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     # ── Execute against GLOBAL portfolio ──
     pnl = 0.0
     if action == "BUY":
-        # Probe entries use smaller position (5-8% instead of normal)
-        pos_pct = 0.06 if is_probe else profile["position_pct"]
+        # Probe entries use smaller position (5% instead of normal)
+        pos_pct = 0.05 if is_probe else profile["position_pct"]
         spend = available_cash * pos_pct
         spend = min(spend, _portfolio["total_cash"] * 0.3)  # cap at 30% of total cash per trade
         spend = min(spend, _portfolio["total_cash"] - 1.0)  # keep $1 reserve
@@ -892,11 +914,61 @@ def get_next_move_prediction() -> dict:
 
     total = buy_weight + sell_weight + hold_weight
     if total <= 0:
-        return {"action": "HOLD", "probability": 100, "reason": "No active strategies"}
+        return {"action": "HOLD", "probability": 75, "reason": "No active strategies"}
 
-    buy_pct = round(buy_weight / total * 100)
-    sell_pct = round(sell_weight / total * 100)
-    hold_pct = round(hold_weight / total * 100)
+    buy_pct = buy_weight / total * 100
+    sell_pct = sell_weight / total * 100
+    hold_pct = hold_weight / total * 100
+
+    # ── Inject signal-based lean so HOLD never hits 100% ──
+    # Even when all strategies say HOLD, market indicators create a slight lean
+    indicators = compute_indicators(trader_state.get("price_history", []))
+    rsi = indicators.get("rsi", 50)
+    slope = indicators.get("slope", 0)
+    accel = indicators.get("acceleration", 0)
+
+    # Signal lean: slight buy/sell bias based on indicators (max ±15%)
+    signal_lean = 0
+    if rsi < 40: signal_lean += 5
+    elif rsi > 60: signal_lean -= 5
+    if slope > 0: signal_lean += 3
+    elif slope < 0: signal_lean -= 3
+    if accel > 3: signal_lean += 4
+    elif accel < -3: signal_lean -= 4
+    # Regime boost
+    if mkt in ("WAKING_UP", "ACTIVE"): signal_lean += 3
+    elif mkt == "BREAKOUT": signal_lean += 5
+
+    if signal_lean > 0:
+        buy_pct += min(signal_lean, 15)
+        hold_pct -= min(signal_lean, 15)
+    elif signal_lean < 0:
+        sell_pct += min(abs(signal_lean), 15)
+        hold_pct -= min(abs(signal_lean), 15)
+
+    # Cap HOLD at 85% — never show 100%
+    if hold_pct > 85:
+        excess = hold_pct - 85
+        hold_pct = 85
+        # Distribute excess proportionally or to the leaning side
+        if signal_lean > 0:
+            buy_pct += excess
+        elif signal_lean < 0:
+            sell_pct += excess
+        else:
+            buy_pct += excess * 0.5
+            sell_pct += excess * 0.5
+
+    buy_pct = round(max(0, min(100, buy_pct)))
+    sell_pct = round(max(0, min(100, sell_pct)))
+    hold_pct = round(max(0, min(100, hold_pct)))
+
+    # Normalize to 100%
+    norm = buy_pct + sell_pct + hold_pct
+    if norm > 0 and norm != 100:
+        buy_pct = round(buy_pct / norm * 100)
+        sell_pct = round(sell_pct / norm * 100)
+        hold_pct = 100 - buy_pct - sell_pct
 
     if buy_pct >= sell_pct and buy_pct >= hold_pct:
         action, prob = "BUY", buy_pct
