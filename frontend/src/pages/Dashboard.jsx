@@ -333,8 +333,8 @@ export default function Dashboard() {
         </div>
 
         {/* Column 2: Holdings */}
-        <div className="card" style={{ padding: isTouch ? "14px 16px" : "10px 12px" }}>
-          <div style={{ fontSize: isTouch ? 12 : 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>Holdings</div>
+        <div className="card" style={{ padding: isTouch ? "10px 14px" : "8px 10px" }}>
+          <div style={{ fontSize: isTouch ? 12 : 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>Holdings</div>
           <InlineMetric label="Cash" value={fmt(cash)} />
           <InlineMetric label="BTC" value={btc.toFixed(6)} />
           <InlineMetric label="Avg Entry" value={avgEntry > 0 ? fmtPrice(avgEntry) : "—"} />
@@ -345,8 +345,8 @@ export default function Dashboard() {
         </div>
 
         {/* Column 3: Indicators */}
-        <div className="card" style={{ padding: isTouch ? "14px 16px" : "10px 12px" }}>
-          <div style={{ fontSize: isTouch ? 12 : 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>Indicators</div>
+        <div className="card" style={{ padding: isTouch ? "10px 14px" : "8px 10px" }}>
+          <div style={{ fontSize: isTouch ? 12 : 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>Indicators</div>
           <InlineMetric label="EMA 9" value={indicators.ema_short ? fmtPrice(indicators.ema_short) : "—"} />
           <InlineMetric label="EMA 21" value={indicators.ema_long ? fmtPrice(indicators.ema_long) : "—"} />
           <InlineMetric label="RSI(14)" value={indicators.rsi?.toFixed(1) || "—"} color={indicators.rsi > 70 ? "var(--red)" : indicators.rsi < 30 ? "var(--green)" : undefined} />
@@ -383,11 +383,11 @@ export default function Dashboard() {
           <SimpleEquityChart equity={autoEquity?.equity} />
         </div>
 
-        {/* Right: Auto-Trades */}
+        {/* Right: Auto-Trades — fixed height, scrollable */}
         <div>
           <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>Recent Auto-Trades</div>
           {trades.length > 0 ? (
-            <div className="table-wrap">
+            <div className="table-wrap" style={{ maxHeight: isTouch ? 260 : 280, overflowY: "auto" }}>
               <table style={{ fontSize: 11 }}>
                 <thead>
                   <tr>
