@@ -23,7 +23,10 @@ export function useKeepAlive() {
 
   const ping = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/ping`, { signal: AbortSignal.timeout(6000) });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      const res = await fetch(`${API}/ping`, { signal: controller.signal });
+      clearTimeout(timer);
       if (res.ok) {
         failRef.current = 0;
         setStatus("LIVE");

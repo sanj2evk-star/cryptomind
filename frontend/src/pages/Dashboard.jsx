@@ -199,7 +199,7 @@ export default function Dashboard() {
       {liveError && <div className="error" style={{ marginBottom: 6, fontSize: 11, padding: "6px 10px" }}>⚠ {liveError}</div>}
       {mktStateReason && (
         <div style={{
-          marginBottom: 6, padding: "5px 10px", borderRadius: 4, fontSize: 11,
+          marginBottom: 4, padding: "4px 10px", borderRadius: 4, fontSize: 11,
           background: mktStateName === "BREAKOUT" ? "#ef444418" : mktStateName === "ACTIVE" ? "#22c55e18" : mktStateName === "WAKING_UP" ? "#eab30818" : "#6b728018",
           color: mktStateName === "BREAKOUT" ? "#ef4444" : mktStateName === "ACTIVE" ? "#22c55e" : mktStateName === "WAKING_UP" ? "#eab308" : "#9ca3af",
         }}>
@@ -208,7 +208,7 @@ export default function Dashboard() {
       )}
 
       {/* ── Top metrics strip ── */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+      <div className="metric-strip" style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
         {[
           { label: "BTC", value: fmtPrice(price) },
           { label: "Equity", value: fmt(equity) },
@@ -217,18 +217,18 @@ export default function Dashboard() {
           { label: "Cash", value: fmt(cash) },
           { label: "BTC Held", value: btc.toFixed(6) },
         ].map((m) => (
-          <div key={m.label} style={{
-            flex: "1 1 140px", background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 6, padding: "20px 18px",
+          <div key={m.label} className="metric-card" style={{
+            flex: "1 1 130px", background: "var(--surface)", border: "1px solid var(--border)",
+            borderRadius: 5, padding: "14px 14px",
           }}>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>{m.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 600, color: m.color || "var(--text)" }}>{m.value}</div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 3 }}>{m.label}</div>
+            <div className="metric-value" style={{ fontSize: 20, fontWeight: 600, color: m.color || "var(--text)" }}>{m.value}</div>
           </div>
         ))}
       </div>
 
       {/* ── BTC Chart (HERO — preserved height) ── */}
-      <Suspense fallback={<div className="card" style={{ height: 260, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", marginBottom: 8 }}>Loading chart...</div>}>
+      <Suspense fallback={<div className="card" style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", marginBottom: 6 }}>Loading chart...</div>}>
         <BTCChart
           marketState={mktStateName}
           action={decision?.action}
@@ -238,7 +238,7 @@ export default function Dashboard() {
       </Suspense>
 
       {/* ── AI Decision+Insight | Holdings | Indicators — 3-col ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "5fr 3fr 3fr", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "5fr 3fr 3fr", gap: 6, marginBottom: 6 }}>
 
         {/* Column 1: AI Decision + Insight stacked */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -338,7 +338,7 @@ export default function Dashboard() {
       </div>
 
       {/* ── Insight + Equity (left) | Auto-Trades (right) ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 8, marginBottom: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 6, marginBottom: 6 }}>
 
         {/* Left: Insight + Equity stacked */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

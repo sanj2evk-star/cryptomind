@@ -298,7 +298,7 @@ tr:last-child td {
    and OnePlus Pad 3 (tablet, 7:5, ~800-1024px CSS width)
    ===================================================================== */
 
-/* ---------- TABLET ONLY: iPad / OnePlus Pad (800-1100px) ---------- */
+/* ---------- TABLET: iPad / OnePlus Pad (800-1100px CSS width) ---------- */
 @media (min-width: 800px) and (max-width: 1100px) {
   /* Collapsed sidebar — icons only, expand on hover */
   .sidebar {
@@ -369,6 +369,55 @@ tr:last-child td {
 @media (min-width: 1101px) {
   .sidebar__icon { display: inline; }
   .sidebar__label { display: inline; }
+}
+
+/* ---------- iPad Pro / tablets with limited height (landscape) ---------- */
+@media (min-width: 1000px) and (max-height: 1100px) {
+  .content {
+    padding: 10px 16px;
+  }
+
+  .content h1 {
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+
+  .card {
+    padding: 8px 10px;
+  }
+
+  .card .value {
+    font-size: 16px;
+  }
+
+  .card .label {
+    font-size: 9px;
+  }
+
+  table {
+    font-size: 11px;
+  }
+
+  th, td {
+    padding: 3px 6px;
+  }
+
+  .section {
+    margin-bottom: 6px;
+  }
+
+  .chart-wrap {
+    padding: 6px;
+    margin-bottom: 6px;
+  }
+
+  .metric-strip .metric-card {
+    padding: 10px 12px !important;
+  }
+
+  .metric-strip .metric-value {
+    font-size: 17px !important;
+  }
 }
 
 /* ---------- PHONE: OnePlus 15 (20:9, <800px) ---------- */
