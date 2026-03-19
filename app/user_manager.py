@@ -260,15 +260,25 @@ def _now() -> str:
 # ---------------------------------------------------------------------------
 
 def ensure_admin() -> None:
-    """Create the default admin user if no users exist.
+    """Ensure the admin user from env exists and credentials match.
 
     Uses API_USERNAME/API_PASSWORD from env, or admin/changeme.
+    If env credentials don't match any existing user, create/recreate.
     """
-    users = _load_users()
-    if users:
-        return
-
     username = os.getenv("API_USERNAME", "admin")
     password = os.getenv("API_PASSWORD", "changeme")
+    users = _load_users()
+
+    # If the expected user exists, verify password matches
+    if username in users:
+        if verify_user(username, password):
+            return  # all good
+        else:
+            # Password changed in env — recreate user
+            del users[username]
+            _save_users(users)
+            print(f"[user_manager] Credentials changed — recreating user: {username}")
+
+    # If expected user doesn't exist, create it
     create_user(username, password, display_name="Admin")
-    print(f"[user_manager] Created default admin user: {username}")
+    print(f"[user_manager] Created admin user: {username}")
