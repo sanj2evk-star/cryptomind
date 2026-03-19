@@ -298,8 +298,8 @@ tr:last-child td {
    and OnePlus Pad 3 (tablet, 7:5, ~800-1024px CSS width)
    ===================================================================== */
 
-/* ---------- TABLET: iPad / OnePlus Pad (800-1400px) ---------- */
-@media (min-width: 800px) and (max-width: 1400px) {
+/* ---------- TABLET ONLY: iPad / OnePlus Pad (800-1100px) ---------- */
+@media (min-width: 800px) and (max-width: 1100px) {
   /* Collapsed sidebar — icons only, expand on hover */
   .sidebar {
     width: 52px;
@@ -346,7 +346,7 @@ tr:last-child td {
     font-size: 16px;
   }
 
-  /* Content area — more space since sidebar is thin */
+  /* Content area */
   .content {
     padding: 16px 20px;
     max-width: 100%;
@@ -357,39 +357,18 @@ tr:last-child td {
     margin-bottom: 10px;
   }
 
-  /* Better readability for key values on tablet */
-  .card .value {
-    font-size: 18px;
-  }
+  .card .value { font-size: 18px; }
+  .card .label { font-size: 10px; }
+  table { font-size: 12px; }
+  th, td { padding: 5px 8px; }
+  .chart-wrap { margin-bottom: 8px; }
+  .section { margin-bottom: 8px; }
+}
 
-  .card .label {
-    font-size: 10px;
-  }
-
-  table {
-    font-size: 12px;
-  }
-
-  th, td {
-    padding: 5px 8px;
-  }
-
-  /* Tighter chart height on tablet */
-  .chart-wrap {
-    margin-bottom: 8px;
-  }
-
-  /* Reduce metric strip padding on tablet */
-  .metric-strip .metric-card {
-    padding: 12px 14px !important;
-  }
-  .metric-strip .metric-card .metric-value {
-    font-size: 18px !important;
-  }
-
-  .section {
-    margin-bottom: 8px;
-  }
+/* ---------- DESKTOP: show full sidebar with icons + labels (>1100px) ---------- */
+@media (min-width: 1101px) {
+  .sidebar__icon { display: inline; }
+  .sidebar__label { display: inline; }
 }
 
 /* ---------- PHONE: OnePlus 15 (20:9, <800px) ---------- */
