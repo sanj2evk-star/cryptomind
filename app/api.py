@@ -24,7 +24,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import FastAPI, Query, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -358,6 +358,12 @@ def seed_demo_data(user_id: str = Depends(get_user_id)):
 # ---------------------------------------------------------------------------
 # Auto-trader endpoints
 # ---------------------------------------------------------------------------
+
+@app.get("/ping")
+def ping():
+    """Lightweight keep-alive endpoint. No auth, minimal payload."""
+    return {"ok": True, "ts": datetime.now(timezone.utc).isoformat()[:19]}
+
 
 @app.get("/live")
 def get_live_state():

@@ -1,5 +1,6 @@
 import { useState, useCallback, lazy, Suspense } from "react";
 import { useApi } from "../hooks/useApi";
+import { useKeepAlive } from "../hooks/useKeepAlive";
 import { fmtLocalTime, fmtLocalTimeShort, getTimezoneLabel } from "../hooks/useTime";
 import { Loading, ErrorBox, EmptyState } from "../components/StatusMessage";
 import MetricCard from "../components/MetricCard";
@@ -77,6 +78,7 @@ export default function Dashboard() {
   const { data: autoTrades, retry: rTrades } = useApi("/auto/trades?limit=15", 10000);
   const { data: autoEquity, retry: rEquity } = useApi("/auto/equity?limit=100", 10000);
 
+  const { status: sysStatus, lastPing } = useKeepAlive();
   const [refreshing, setRefreshing] = useState(false);
 
   const refreshAll = useCallback(() => {
@@ -133,19 +135,57 @@ export default function Dashboard() {
     <>
       {/* ── Header bar ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+        {/* Left: title + market badge */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Dashboard</h1>
           <MarketStateBadge state={mktStateName} score={mktStateScore} />
-          <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
-            {running ? `#${cycleCount}` : "Stopped"}
-          </span>
-          <span style={{
-            display: "inline-block", width: 6, height: 6, borderRadius: "50%",
-            background: running ? "var(--green)" : "var(--red)",
-          }} />
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {lastUpdate && <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{fmtLocalTimeShort(lastUpdate)} {TZ_LABEL}</span>}
+
+        {/* Right: status + stats + time + refresh */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {/* System status dot */}
+          {(() => {
+            const dotCfg = {
+              LIVE:       { color: "#22c55e", label: "LIVE" },
+              CONNECTING: { color: "#eab308", label: "CONNECTING" },
+              SLEEPING:   { color: "#f97316", label: "WAKING" },
+              ERROR:      { color: "#ef4444", label: "OFFLINE" },
+            };
+            const d = dotCfg[sysStatus] || dotCfg.CONNECTING;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{
+                  display: "inline-block", width: 7, height: 7, borderRadius: "50%",
+                  background: d.color, boxShadow: `0 0 6px ${d.color}66`,
+                }} />
+                <span style={{ fontSize: 10, fontWeight: 600, color: d.color }}>{d.label}</span>
+              </div>
+            );
+          })()}
+
+          {/* Cycle */}
+          <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+            Cycle <b style={{ color: "var(--text)" }}>#{cycleCount}</b>
+          </span>
+
+          {/* Trade count */}
+          <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+            Trades <b style={{ color: "var(--text)" }}>{totalTrades}</b>
+          </span>
+
+          {/* Active strategies count */}
+          <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+            Strategies <b style={{ color: "var(--text)" }}>{running ? "9" : "0"}</b>
+          </span>
+
+          {/* Last update time */}
+          {lastUpdate && (
+            <span style={{ fontSize: 9, color: "var(--text-muted)" }}>
+              {fmtLocalTimeShort(lastUpdate)} {TZ_LABEL}
+            </span>
+          )}
+
+          {/* Refresh */}
           <button onClick={refreshAll} disabled={refreshing} style={{
             padding: "3px 8px", background: "var(--surface)", border: "1px solid var(--border)",
             borderRadius: 4, color: "var(--text)", fontSize: 11, cursor: "pointer",
