@@ -110,6 +110,7 @@ def _init_strategy(name: str) -> dict:
         "killed_at_cycle": 0,
         "trades_this_minute": 0,
         "minute_marker": 0,
+        "entry_condition_met": False,
         "_prev_market": "SLEEPING",
     }
 
@@ -403,58 +404,162 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
         s["last_reason"] = f"Regime {mkt} — not active"
         return {"action": "HOLD", "pnl": 0.0}
 
-    # Compute scores
-    ema_score = _score_ema(indicators["ema_short"], indicators["ema_long"])
-    rsi_score = _score_rsi(indicators["rsi"])
-    trend_score = _score_trend(indicators["slope"], indicators["momentum"])
-    accel_score = _score_acceleration(indicators.get("acceleration", 0))
+    # Compute raw indicator values
+    ema_short = indicators["ema_short"]
+    ema_long = indicators["ema_long"]
+    rsi = indicators.get("rsi", 50)
+    slope = indicators.get("slope", 0)
+    momentum = indicators.get("momentum", 0)
+    accel = indicators.get("acceleration", 0)
+    vol = indicators.get("volatility", 0)
+
+    # Global score (for dashboard display + conservative strategies)
+    ema_score = _score_ema(ema_short, ema_long)
+    rsi_score = _score_rsi(rsi)
+    trend_score = _score_trend(slope, momentum)
+    accel_score = _score_acceleration(accel)
     total_score = round(ema_score * W_EMA + rsi_score * W_RSI + trend_score * W_TREND + accel_score * W_MOMENTUM, 2)
 
     buy_t = profile["buy_threshold"]
     sell_t = profile["sell_threshold"]
     confidence = round(min(abs(total_score - (buy_t + sell_t) / 2) / 50, 0.95), 2)
     reasons = []
+    entry_met = False  # track if native entry condition was met
 
     btc = s["btc_holdings"]
     global_cash = _portfolio["total_cash"]
     alloc_pct = _allocations.get(name, 1.0 / len(PROFILES))
-    available_cash = global_cash * alloc_pct  # this strategy's share of cash
+    available_cash = global_cash * alloc_pct
     action = "HOLD"
 
-    # --- Special logic: Mean Reverter (RSI-based) ---
-    if profile.get("use_rsi_logic"):
-        rsi = indicators.get("rsi", 50)
-        if rsi < 40 and available_cash > 0.5 and btc < 0.0001:
-            action = "BUY"
-            reasons.append(f"RSI {rsi:.0f} < 40 — oversold")
-        elif rsi > 60 and btc > 0:
-            action = "SELL"
-            reasons.append(f"RSI {rsi:.0f} > 60 — overbought")
+    # ══════════════════════════════════════════════════════════
+    # STRATEGY-NATIVE ENTRY LOGIC (each strategy decides independently)
+    # ══════════════════════════════════════════════════════════
 
-    # --- Special logic: Breakout Sniper ---
-    elif profile.get("use_breakout_logic"):
-        vol = indicators.get("volatility", 0)
-        accel = indicators.get("acceleration", 0)
-        if vol > 0.001 and accel > 15 and available_cash > 0.5 and btc < 0.0001:
-            action = "BUY"
-            reasons.append(f"Breakout: vol={vol:.4f} accel={accel:.1f}")
-        elif btc > 0 and (accel < -10 or total_score < sell_t):
-            action = "SELL"
-            reasons.append(f"Exit breakout: accel={accel:.1f}")
+    if name == "SCALPER":
+        # Scalper: micro movements — EMA spread expansion OR momentum flip
+        ema_spread = abs(ema_short - ema_long) / ema_long * 100 if ema_long > 0 else 0
+        mom_positive = momentum > 0 and accel > 2
+        mom_negative = momentum < 0 and accel < -2
+        if btc < 0.0001 and available_cash > 0.3:
+            if ema_spread > 0.01 and mom_positive:
+                action = "BUY"
+                entry_met = True
+                reasons.append(f"Scalp: spread={ema_spread:.3f}% mom={momentum:.1f} accel={accel:.1f}")
+            elif rsi < 35:
+                action = "BUY"
+                entry_met = True
+                reasons.append(f"Scalp dip: RSI={rsi:.0f}")
+        elif btc > 0:
+            if mom_negative or rsi > 65 or (ema_short < ema_long and accel < 0):
+                action = "SELL"
+                entry_met = True
+                reasons.append(f"Scalp exit: mom={momentum:.1f} RSI={rsi:.0f}")
 
-    # --- Standard scoring logic ---
+    elif name == "MEAN_REVERTER":
+        # Mean Reverter: RSI snapback — trade oversold/overbought
+        if btc < 0.0001 and available_cash > 0.3:
+            if rsi < 38:
+                action = "BUY"
+                entry_met = True
+                reasons.append(f"Mean revert BUY: RSI={rsi:.0f} oversold")
+            elif rsi < 45 and slope > 0 and momentum > 0:
+                action = "BUY"
+                entry_met = True
+                reasons.append(f"Mean revert early: RSI={rsi:.0f} turning up")
+        elif btc > 0:
+            if rsi > 58:
+                action = "SELL"
+                entry_met = True
+                reasons.append(f"Mean revert SELL: RSI={rsi:.0f} overbought")
+            elif rsi > 52 and slope < 0:
+                action = "SELL"
+                entry_met = True
+                reasons.append(f"Mean revert exit: RSI={rsi:.0f} fading")
+
+    elif name == "INTUITIVE":
+        # Intuitive: partial signal agreement — 2 of 3 signals aligning
+        signals_bullish = 0
+        signals_bearish = 0
+        if ema_short > ema_long: signals_bullish += 1
+        else: signals_bearish += 1
+        if rsi < 45: signals_bullish += 1
+        elif rsi > 55: signals_bearish += 1
+        if momentum > 0 and accel > 0: signals_bullish += 1
+        elif momentum < 0 and accel < 0: signals_bearish += 1
+        if vol > 0.0002: signals_bullish += 0.5; signals_bearish += 0.5  # volatility = opportunity
+
+        if btc < 0.0001 and available_cash > 0.3 and signals_bullish >= 2:
+            action = "BUY"
+            entry_met = True
+            reasons.append(f"Intuitive: {signals_bullish:.0f} bullish signals (EMA/RSI/mom)")
+        elif btc > 0 and signals_bearish >= 2:
+            action = "SELL"
+            entry_met = True
+            reasons.append(f"Intuitive exit: {signals_bearish:.0f} bearish signals")
+
+    elif name == "BREAKOUT_SNIPER":
+        # Breakout Sniper: volatility expansion + acceleration spike
+        vol_expanding = vol > 0.0005
+        accel_spike = abs(accel) > 8
+        price_displacement = abs(ema_short - ema_long) / ema_long * 100 > 0.02 if ema_long > 0 else False
+        if btc < 0.0001 and available_cash > 0.3:
+            if vol_expanding and accel_spike and accel > 0:
+                action = "BUY"
+                entry_met = True
+                reasons.append(f"Breakout BUY: vol={vol:.4f} accel={accel:.1f}")
+            elif price_displacement and accel > 5 and momentum > 0:
+                action = "BUY"
+                entry_met = True
+                reasons.append(f"Displacement BUY: accel={accel:.1f} mom={momentum:.1f}")
+        elif btc > 0:
+            if accel < -5 or (momentum < 0 and rsi > 55):
+                action = "SELL"
+                entry_met = True
+                reasons.append(f"Breakout exit: accel={accel:.1f}")
+
+    elif name == "EXPERIMENTAL":
+        # Wildcard: trades on anything — very low bar
+        if btc < 0.0001 and available_cash > 0.3:
+            if total_score > 52 or (rsi < 40 and momentum > 0) or (accel > 5 and ema_short > ema_long):
+                action = "BUY"
+                entry_met = True
+                reasons.append(f"Wildcard: score={total_score:.0f} RSI={rsi:.0f} accel={accel:.1f}")
+        elif btc > 0:
+            if total_score < 48 or rsi > 60 or (accel < -3 and momentum < 0):
+                action = "SELL"
+                entry_met = True
+                reasons.append(f"Wildcard exit: score={total_score:.0f} RSI={rsi:.0f}")
+
     else:
+        # MONK, HUNTER, AGGRESSIVE, DEFENSIVE — use global score (conservative)
         if total_score >= buy_t and available_cash > 0.5 and btc < 0.0001:
             action = "BUY"
+            entry_met = True
             reasons.append(f"Score {total_score:.0f} >= {buy_t}")
         elif total_score <= sell_t and btc > 0:
             action = "SELL"
+            entry_met = True
             reasons.append(f"Score {total_score:.0f} <= {sell_t}")
 
-    # Confidence filter
-    if action != "HOLD" and confidence < profile["min_confidence"]:
+    # Log why NOT trading (for debugging)
+    if action == "HOLD" and not entry_met:
+        hold_reason = []
+        if btc > 0:
+            hold_reason.append("holding position")
+        else:
+            hold_reason.append(f"score={total_score:.0f}")
+            hold_reason.append(f"RSI={rsi:.0f}")
+            hold_reason.append(f"accel={accel:.1f}")
+        reasons.append("No entry: " + ", ".join(hold_reason))
+
+    # Confidence filter — only for conservative strategies
+    if action != "HOLD" and name in ("MONK", "DEFENSIVE") and confidence < profile["min_confidence"]:
         action = "HOLD"
         reasons.append(f"Low confidence ({confidence:.0%})")
+
+    # Store entry condition status
+    s["entry_condition_met"] = entry_met
 
     # Cooldown
     since = time.time() - s["last_trade_time"]
@@ -619,6 +724,7 @@ def _compute_leaderboard(price: float) -> list[dict]:
             "position_open": s["btc_holdings"] > 0.0001,
             "allocation_pct": round(_allocations.get(name, 0) * 100, 1),
             "consecutive_losses": s["consecutive_losses"],
+            "entry_condition_met": s.get("entry_condition_met", False),
             "regimes": PROFILES[name].get("regimes", []),
         })
     board.sort(key=lambda x: x["total_return"], reverse=True)

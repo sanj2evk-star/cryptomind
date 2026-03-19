@@ -236,6 +236,17 @@ export default function Leaderboard() {
                 </div>
               )}
 
+              {/* Entry condition */}
+              <div style={{ marginBottom: 4, fontSize: 10 }}>
+                <span style={{ color: "var(--text-muted)" }}>Entry: </span>
+                <span style={{
+                  fontWeight: 600,
+                  color: boardEntry.entry_condition_met ? "var(--green)" : "var(--text-muted)",
+                }}>
+                  {boardEntry.entry_condition_met ? "✓ YES" : "✗ NO"}
+                </span>
+              </div>
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, fontSize: 11 }}>
                 <div><span style={{ color: "var(--text-muted)" }}>Eq: </span><b>{fmt(s.equity)}</b></div>
                 <div><span style={{ color: "var(--text-muted)" }}>PnL: </span><span style={{ color: s.realized_pnl >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>{fmt(s.realized_pnl)}</span></div>
