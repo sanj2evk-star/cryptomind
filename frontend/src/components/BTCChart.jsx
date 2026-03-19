@@ -54,7 +54,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
       // Create chart
       const chart = createChart(containerRef.current, {
         width: containerRef.current.clientWidth,
-        height: 380,
+        height: 300,
         layout: {
           background: { type: ColorType.Solid, color: "transparent" },
           textColor: "#9ca3af",
@@ -178,7 +178,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
   const actionColors = { BUY: "#22c55e", SELL: "#ef4444", HOLD: "#6b7280" };
 
   return (
-    <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 24 }}>
+    <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 12 }}>
       {/* Chart header */}
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -259,7 +259,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
       </div>
 
       {/* Chart body */}
-      <div style={{ position: "relative", minHeight: 380 }}>
+      <div style={{ position: "relative", minHeight: 300 }}>
         {loading && !lastCandle && (
           <div style={{
             position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",

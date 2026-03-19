@@ -127,9 +127,9 @@ export default function Dashboard() {
   return (
     <>
       {/* Header — wraps on mobile */}
-      <div className="dash-header" style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <h1 style={{ margin: 0, fontSize: "clamp(18px, 4vw, 24px)" }}>Dashboard</h1>
+      <div className="dash-header" style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <h1 style={{ margin: 0, fontSize: "clamp(16px, 3vw, 20px)" }}>Dashboard</h1>
           <MarketStateBadge state={mktStateName} score={mktStateScore} />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -159,15 +159,15 @@ export default function Dashboard() {
 
       {/* Alerts */}
       {liveError && (
-        <div className="error" style={{ marginBottom: 16, fontSize: 13 }}>Auto-trader error: {liveError}</div>
+        <div className="error" style={{ marginBottom: 10, fontSize: 13 }}>Auto-trader error: {liveError}</div>
       )}
       {lErr && live && (
-        <div className="error" style={{ marginBottom: 16, fontSize: 13 }}>Refresh failed — showing last known data.</div>
+        <div className="error" style={{ marginBottom: 10, fontSize: 13 }}>Refresh failed — showing last known data.</div>
       )}
       {/* Market State Summary */}
       {mktStateReason && (
         <div style={{
-          marginBottom: 16, padding: "10px 14px", borderRadius: 6, fontSize: 13,
+          marginBottom: 10, padding: "10px 14px", borderRadius: 6, fontSize: 13,
           background: mktStateName === "BREAKOUT" ? "#ef444422" : mktStateName === "ACTIVE" ? "#22c55e22" : mktStateName === "WAKING_UP" ? "#eab30822" : "#6b728022",
           border: `1px solid ${mktStateName === "BREAKOUT" ? "#ef444444" : mktStateName === "ACTIVE" ? "#22c55e44" : mktStateName === "WAKING_UP" ? "#eab30844" : "#6b728044"}`,
           color: mktStateName === "BREAKOUT" ? "#ef4444" : mktStateName === "ACTIVE" ? "#22c55e" : mktStateName === "WAKING_UP" ? "#eab308" : "#9ca3af",
@@ -185,7 +185,7 @@ export default function Dashboard() {
       </div>
 
       {/* Row 2: BTC Price Chart */}
-      <Suspense fallback={<div className="card" style={{ height: 380, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", marginBottom: 24 }}>Loading chart...</div>}>
+      <Suspense fallback={<div className="card" style={{ height: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", marginBottom: 12 }}>Loading chart...</div>}>
         <BTCChart
           marketState={mktStateName}
           action={decision?.action}
@@ -195,7 +195,7 @@ export default function Dashboard() {
       </Suspense>
 
       {/* Row 3: AI Decision + Holdings */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 12 }}>
 
         {/* AI Decision */}
         <div className="card">
@@ -319,7 +319,7 @@ export default function Dashboard() {
 
       {/* Row 3: Technical Indicators */}
       {indicators.ema_short && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16, marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16, marginBottom: 12 }}>
           <MetricCard label="EMA(9) / EMA(21)" value={`${fmtPrice(indicators.ema_short)} / ${fmtPrice(indicators.ema_long)}`} />
           <MetricCard
             label="RSI(14)"
@@ -346,7 +346,7 @@ export default function Dashboard() {
 
       {/* Row 4: Session Insight */}
       {insightText && (
-        <div className="card" style={{ marginBottom: 24, borderLeft: "3px solid #8b5cf6" }}>
+        <div className="card" style={{ marginBottom: 12, borderLeft: "3px solid #8b5cf6" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>Session Insight</span>
