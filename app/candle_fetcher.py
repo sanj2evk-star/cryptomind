@@ -21,10 +21,17 @@ from urllib.error import URLError
 # ---------------------------------------------------------------------------
 _cache: dict[str, dict] = {}  # key → {"data": [...], "ts": timestamp}
 CACHE_TTL = {
-    "1m": 30,    # 30s cache for 1m candles
+    "1m": 30,    # 30s cache
     "5m": 120,   # 2 min
     "15m": 300,  # 5 min
     "1h": 600,   # 10 min
+    "6h": 1800,  # 30 min
+    "12h": 3600, # 1 hour
+    "1d": 3600,  # 1 hour
+    "1w": 7200,  # 2 hours
+    "1M": 14400, # 4 hours
+    "3M": 14400,
+    "6M": 14400,
 }
 
 # ---------------------------------------------------------------------------
@@ -35,6 +42,13 @@ BINANCE_INTERVALS = {
     "5m": "5m",
     "15m": "15m",
     "1h": "1h",
+    "6h": "6h",
+    "12h": "12h",
+    "1d": "1d",
+    "1w": "1w",
+    "1M": "1M",
+    "3M": "1M",   # Binance has no 3M — use 1M with more candles
+    "6M": "1M",   # same approach
 }
 
 BINANCE_LIMITS = {
@@ -42,6 +56,13 @@ BINANCE_LIMITS = {
     "5m": 100,
     "15m": 96,
     "1h": 168,
+    "6h": 120,
+    "12h": 120,
+    "1d": 365,
+    "1w": 104,
+    "1M": 60,
+    "3M": 60,
+    "6M": 60,
 }
 
 
@@ -78,10 +99,17 @@ def _fetch_coingecko_line(interval: str = "5m") -> list[dict]:
     """
     # Map intervals to CoinGecko days param
     days_map = {
-        "1m": "1",     # 1 day at 5-min granularity (closest to 1m)
+        "1m": "1",     # 1 day at 5-min granularity
         "5m": "1",     # 1 day at 5-min granularity
         "15m": "7",    # 7 days, hourly
         "1h": "30",    # 30 days, hourly
+        "6h": "90",    # 90 days
+        "12h": "180",  # 180 days
+        "1d": "365",   # 1 year
+        "1w": "max",   # all history
+        "1M": "max",
+        "3M": "max",
+        "6M": "max",
     }
     days = days_map.get(interval, "1")
     url = f"https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days={days}"
@@ -93,7 +121,11 @@ def _fetch_coingecko_line(interval: str = "5m") -> list[dict]:
 
     # Convert to candle-like format
     # Group prices into interval buckets
-    interval_seconds = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+    interval_seconds = {
+        "1m": 60, "5m": 300, "15m": 900, "1h": 3600,
+        "6h": 21600, "12h": 43200, "1d": 86400, "1w": 604800,
+        "1M": 2592000, "3M": 7776000, "6M": 15552000,
+    }
     bucket_size = interval_seconds.get(interval, 300)
 
     candles = []
@@ -139,8 +171,13 @@ def _fetch_coingecko_line(interval: str = "5m") -> list[dict]:
 
 def _fetch_coinbase(interval: str = "5m") -> list[dict]:
     """Fetch candles from Coinbase Pro (no auth needed)."""
-    granularity_map = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+    granularity_map = {
+        "1m": 60, "5m": 300, "15m": 900, "1h": 3600,
+        "6h": 21600, "12h": 43200, "1d": 86400,
+    }
     gran = granularity_map.get(interval, 300)
+    if interval in ("1w", "1M", "3M", "6M"):
+        gran = 86400  # Coinbase max is daily
     url = f"https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity={gran}"
     raw = _fetch_json(url, timeout=15)
     # Coinbase returns [[time, low, high, open, close, volume], ...] newest first

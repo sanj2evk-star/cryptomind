@@ -24,6 +24,13 @@ const TIMEFRAMES = [
   { label: "5m", value: "5m" },
   { label: "15m", value: "15m" },
   { label: "1H", value: "1h" },
+  { label: "6H", value: "6h" },
+  { label: "12H", value: "12h" },
+  { label: "1D", value: "1d" },
+  { label: "1W", value: "1w" },
+  { label: "1M", value: "1M" },
+  { label: "3M", value: "3M" },
+  { label: "6M", value: "6M" },
 ];
 
 const CHART_STORAGE_KEY = "cryptomind_chart_visible";
@@ -55,10 +62,14 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
     catch { return true; }
   });
   const [expanded, setExpanded] = useState(false); // iPad expand/collapse
+  const expandedRef = useRef(false); // ref for use inside callbacks
 
   const dataRef = useRef(null);
   const pollRef = useRef(null);
   const initCountRef = useRef(0); // track how many times chart was created
+
+  // Keep expandedRef in sync
+  expandedRef.current = expanded;
 
   // ── Toggle chart visibility ──
   const toggleChart = useCallback(() => {
@@ -101,7 +112,8 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
     const isSimple = chartMode === "simple";
     const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
     const vh = window.innerHeight;
-    const chartHeight = (isTouch && vh <= 1100) ? (expanded ? 340 : 200) : 340;
+    const isExpanded = expandedRef.current;
+    const chartHeight = (isTouch && vh <= 1100) ? (isExpanded ? 340 : 200) : 340;
 
     try {
       const chart = createChart(container, {

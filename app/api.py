@@ -405,7 +405,8 @@ def get_leaderboard():
 @app.get("/candles")
 def get_candles(interval: str = Query(default="5m")):
     """BTC/USDT candle data for charting. No auth required."""
-    if interval not in ("1m", "5m", "15m", "1h"):
+    valid = ("1m", "5m", "15m", "1h", "6h", "12h", "1d", "1w", "1M", "3M", "6M")
+    if interval not in valid:
         interval = "5m"
     try:
         import candle_fetcher
