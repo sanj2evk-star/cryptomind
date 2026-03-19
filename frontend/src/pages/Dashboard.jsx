@@ -237,82 +237,101 @@ export default function Dashboard() {
         />
       </Suspense>
 
-      {/* ── AI Decision + Holdings + Indicators — balanced 3-col ── */}
+      {/* ── AI Decision+Insight | Holdings | Indicators — 3-col ── */}
       <div style={{ display: "grid", gridTemplateColumns: "5fr 3fr 3fr", gap: 8, marginBottom: 8 }}>
 
-        {/* AI Decision — signal box */}
-        <div className="card" style={{ padding: "10px 12px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>AI Decision</span>
-            {isEarly && <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 2, background: "#8b5cf633", color: "#a78bfa" }}>EARLY</span>}
-          </div>
-          {!decision ? (
-            <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Waiting...</div>
-          ) : (
-            <>
-              {/* Big signal line */}
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-                <span className={`tag ${(decision.action || "hold").toLowerCase()}`} style={{ fontSize: 16, padding: "3px 12px", fontWeight: 700 }}>
-                  {decision.action || "HOLD"}
-                </span>
-                <span style={{ fontSize: 20, fontWeight: 800 }}>{decision.score ?? "—"}</span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>/100</span>
-                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  {(Number(decision.confidence ?? 0) * 100).toFixed(0)}% conf
-                </span>
-                {decision.position_size > 0 && (
-                  <span style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>
-                    {(decision.position_size * 100).toFixed(0)}% size
+        {/* Column 1: AI Decision + Insight stacked */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {/* AI Decision */}
+          <div className="card" style={{ padding: "10px 12px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>AI Decision</span>
+              {isEarly && <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 2, background: "#8b5cf633", color: "#a78bfa" }}>EARLY</span>}
+            </div>
+            {!decision ? (
+              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Waiting...</div>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                  <span className={`tag ${(decision.action || "hold").toLowerCase()}`} style={{ fontSize: 16, padding: "3px 12px", fontWeight: 700 }}>
+                    {decision.action || "HOLD"}
                   </span>
-                )}
-              </div>
-
-              {/* Threshold bar */}
-              <div style={{ marginBottom: 5 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--text-muted)", marginBottom: 1 }}>
-                  <span>SELL &lt;{sellThresh}</span><span>HOLD</span><span>BUY &gt;{buyThresh}</span>
+                  <span style={{ fontSize: 20, fontWeight: 800 }}>{decision.score ?? "—"}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>/100</span>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    {(Number(decision.confidence ?? 0) * 100).toFixed(0)}% conf
+                  </span>
+                  {decision.position_size > 0 && (
+                    <span style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>
+                      {(decision.position_size * 100).toFixed(0)}% size
+                    </span>
+                  )}
                 </div>
-                <div style={{ position: "relative", height: 5, background: "var(--border)", borderRadius: 3 }}>
-                  <div style={{ position: "absolute", left: 0, top: 0, width: `${sellThresh}%`, height: "100%", background: "#ef444433", borderRadius: "3px 0 0 3px" }} />
-                  <div style={{ position: "absolute", right: 0, top: 0, width: `${100 - buyThresh}%`, height: "100%", background: "#22c55e33", borderRadius: "0 3px 3px 0" }} />
-                  <div style={{
-                    position: "absolute", top: -3, left: `${Math.max(0, Math.min(100, decision.score ?? 50))}%`,
-                    transform: "translateX(-50%)", width: 11, height: 11, borderRadius: "50%",
-                    background: decision.action === "BUY" ? "var(--green)" : decision.action === "SELL" ? "var(--red)" : "var(--text-muted)",
-                    border: "2px solid var(--surface)",
-                  }} />
+
+                {/* Threshold bar */}
+                <div style={{ marginBottom: 5 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--text-muted)", marginBottom: 1 }}>
+                    <span>SELL &lt;{sellThresh}</span><span>HOLD</span><span>BUY &gt;{buyThresh}</span>
+                  </div>
+                  <div style={{ position: "relative", height: 5, background: "var(--border)", borderRadius: 3 }}>
+                    <div style={{ position: "absolute", left: 0, top: 0, width: `${sellThresh}%`, height: "100%", background: "#ef444433", borderRadius: "3px 0 0 3px" }} />
+                    <div style={{ position: "absolute", right: 0, top: 0, width: `${100 - buyThresh}%`, height: "100%", background: "#22c55e33", borderRadius: "0 3px 3px 0" }} />
+                    <div style={{
+                      position: "absolute", top: -3, left: `${Math.max(0, Math.min(100, decision.score ?? 50))}%`,
+                      transform: "translateX(-50%)", width: 11, height: 11, borderRadius: "50%",
+                      background: decision.action === "BUY" ? "var(--green)" : decision.action === "SELL" ? "var(--red)" : "var(--text-muted)",
+                      border: "2px solid var(--surface)",
+                    }} />
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4, marginBottom: 4 }}>
+                  {decision.reasoning}
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  {whyReasons.length > 0 && (
+                    <div style={{ padding: "4px 6px", background: "var(--bg)", borderRadius: 3, borderLeft: "2px solid #8b5cf6" }}>
+                      <div style={{ fontSize: 9, color: "#a78bfa", fontWeight: 700, marginBottom: 2 }}>WHY</div>
+                      {whyReasons.slice(0, 3).map((r, i) => (
+                        <div key={i} style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.3 }}>• {r}</div>
+                      ))}
+                    </div>
+                  )}
+                  {decision.signals && typeof decision.signals === "object" && !Array.isArray(decision.signals) && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
+                      <SignalBar label="EMA" value={decision.signals.ema} weight="35%" />
+                      <SignalBar label="RSI" value={decision.signals.rsi} weight="25%" />
+                      <SignalBar label="Trend" value={decision.signals.trend} weight="25%" />
+                      <SignalBar label="Accel" value={decision.signals.momentum} weight="15%" />
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Session Insight — directly under AI Decision */}
+          {insightText && (
+            <div style={{
+              padding: "6px 10px", borderRadius: 4,
+              background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "2px solid #8b5cf6",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#a78bfa", textTransform: "uppercase" }}>Insight</span>
+                <div style={{ display: "flex", gap: 8, fontSize: 9, color: "var(--text-muted)" }}>
+                  <span>{insightStats.cycles ?? 0}c</span>
+                  <span style={{ color: "var(--green)" }}>{insightStats.trades_taken ?? 0} traded</span>
+                  <span style={{ color: "#f59e0b" }}>{insightStats.trades_avoided ?? 0} skip</span>
+                  <span>{insightStats.holds ?? 0} hold</span>
                 </div>
               </div>
-
-              {/* Reasoning */}
-              <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4, marginBottom: 4 }}>
-                {decision.reasoning}
-              </div>
-
-              {/* Why + Signals side by side */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                {whyReasons.length > 0 && (
-                  <div style={{ padding: "4px 6px", background: "var(--bg)", borderRadius: 3, borderLeft: "2px solid #8b5cf6" }}>
-                    <div style={{ fontSize: 9, color: "#a78bfa", fontWeight: 700, marginBottom: 2 }}>WHY</div>
-                    {whyReasons.slice(0, 3).map((r, i) => (
-                      <div key={i} style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.3 }}>• {r}</div>
-                    ))}
-                  </div>
-                )}
-                {decision.signals && typeof decision.signals === "object" && !Array.isArray(decision.signals) && (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
-                    <SignalBar label="EMA" value={decision.signals.ema} weight="35%" />
-                    <SignalBar label="RSI" value={decision.signals.rsi} weight="25%" />
-                    <SignalBar label="Trend" value={decision.signals.trend} weight="25%" />
-                    <SignalBar label="Accel" value={decision.signals.momentum} weight="15%" />
-                  </div>
-                )}
-              </div>
-            </>
+              <div style={{ fontSize: 10, color: "var(--text)", lineHeight: 1.4 }}>{insightText}</div>
+            </div>
           )}
         </div>
 
-        {/* Holdings */}
+        {/* Column 2: Holdings */}
         <div className="card" style={{ padding: "10px 12px" }}>
           <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>Holdings</div>
           <InlineMetric label="Cash" value={fmt(cash)} />
@@ -324,7 +343,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Indicators */}
+        {/* Column 3: Indicators */}
         <div className="card" style={{ padding: "10px 12px" }}>
           <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>Indicators</div>
           <InlineMetric label="EMA 9" value={indicators.ema_short ? fmtPrice(indicators.ema_short) : "—"} />
@@ -335,26 +354,6 @@ export default function Dashboard() {
           <InlineMetric label="Accel" value={indicators.acceleration?.toFixed(1) ?? "0.0"} color={indicators.acceleration > 10 ? "var(--green)" : indicators.acceleration < -10 ? "var(--red)" : undefined} />
         </div>
       </div>
-
-      {/* ── Session Insight (single compact line) ── */}
-      {insightText && (
-        <div style={{
-          marginBottom: 8, padding: "6px 10px", borderRadius: 4,
-          background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "2px solid #8b5cf6",
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: "#a78bfa", textTransform: "uppercase" }}>Insight</span>
-            <div style={{ display: "flex", gap: 10, fontSize: 10, color: "var(--text-muted)" }}>
-              <span>{insightStats.cycles ?? 0}c</span>
-              <span style={{ color: "var(--green)" }}>{insightStats.trades_taken ?? 0} traded</span>
-              <span style={{ color: "#f59e0b" }}>{insightStats.trades_avoided ?? 0} filtered</span>
-              <span>{insightStats.holds ?? 0} holds</span>
-              {insightTime && <span>{fmtLocalTimeShort(insightTime)}</span>}
-            </div>
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text)", lineHeight: 1.4 }}>{insightText}</div>
-        </div>
-      )}
 
       {/* ── Equity + Trades side by side on wide screens ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 8, marginBottom: 8 }}>
