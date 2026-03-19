@@ -311,24 +311,6 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Session Insight — directly under AI Decision */}
-          {insightText && (
-            <div style={{
-              padding: "6px 10px", borderRadius: 4,
-              background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "2px solid #8b5cf6",
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                <span style={{ fontSize: 9, fontWeight: 700, color: "#a78bfa", textTransform: "uppercase" }}>Insight</span>
-                <div style={{ display: "flex", gap: 8, fontSize: 9, color: "var(--text-muted)" }}>
-                  <span>{insightStats.cycles ?? 0}c</span>
-                  <span style={{ color: "var(--green)" }}>{insightStats.trades_taken ?? 0} traded</span>
-                  <span style={{ color: "#f59e0b" }}>{insightStats.trades_avoided ?? 0} skip</span>
-                  <span>{insightStats.holds ?? 0} hold</span>
-                </div>
-              </div>
-              <div style={{ fontSize: 10, color: "var(--text)", lineHeight: 1.4 }}>{insightText}</div>
-            </div>
-          )}
         </div>
 
         {/* Column 2: Holdings */}
@@ -354,6 +336,26 @@ export default function Dashboard() {
           <InlineMetric label="Accel" value={indicators.acceleration?.toFixed(1) ?? "0.0"} color={indicators.acceleration > 10 ? "var(--green)" : indicators.acceleration < -10 ? "var(--red)" : undefined} />
         </div>
       </div>
+
+      {/* ── Session Insight (full width, readable) ── */}
+      {insightText && (
+        <div style={{
+          marginBottom: 10, padding: "12px 16px", borderRadius: 6,
+          background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "3px solid #8b5cf6",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 0.5 }}>Session Insight</span>
+            <div style={{ display: "flex", gap: 12, fontSize: 11, color: "var(--text-muted)" }}>
+              <span>{insightStats.cycles ?? 0} cycles</span>
+              <span style={{ color: "var(--green)" }}>{insightStats.trades_taken ?? 0} traded</span>
+              <span style={{ color: "#f59e0b" }}>{insightStats.trades_avoided ?? 0} skipped</span>
+              <span>{insightStats.holds ?? 0} holds</span>
+              {insightTime && <span>{fmtLocalTimeShort(insightTime)} {TZ_LABEL}</span>}
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>{insightText}</div>
+        </div>
+      )}
 
       {/* ── Equity + Trades side by side on wide screens ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 8, marginBottom: 8 }}>
