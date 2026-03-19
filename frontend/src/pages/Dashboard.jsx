@@ -178,11 +178,11 @@ export default function Dashboard() {
           { label: "BTC Held", value: btc.toFixed(6) },
         ].map((m) => (
           <div key={m.label} style={{
-            flex: "1 1 120px", background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 4, padding: "6px 10px",
+            flex: "1 1 140px", background: "var(--surface)", border: "1px solid var(--border)",
+            borderRadius: 5, padding: "10px 14px",
           }}>
-            <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>{m.label}</div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: m.color || "var(--text)", marginTop: 1 }}>{m.value}</div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.4 }}>{m.label}</div>
+            <div style={{ fontSize: 18, fontWeight: 600, color: m.color || "var(--text)", marginTop: 2 }}>{m.value}</div>
           </div>
         ))}
       </div>
