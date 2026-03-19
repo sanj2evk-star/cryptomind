@@ -80,6 +80,7 @@ export default function Dashboard() {
   const { data: autoTrades, retry: rTrades } = useApi("/auto/trades?limit=15", 10000);
   const { data: autoEquity, retry: rEquity } = useApi("/auto/equity?limit=100", 10000);
   const { data: aiPerf } = useApi("/ai-performance", 30000);
+  const { data: adaptive } = useApi("/adaptive", 15000);
 
   const { status: sysStatus, lastPing } = useKeepAlive();
   const { enabled: soundEnabled, toggle: toggleSound, checkTrades: checkTradeSound } = useTradeSound();
@@ -142,7 +143,7 @@ export default function Dashboard() {
   const decision = live?.last_decision;
   const indicators = live?.indicators || {};
   const portfolio = live?.portfolio || {};
-  const adaptive = live?.adaptive || {};
+  const liveAdaptive = live?.adaptive || {};
   const sessionInsight = live?.session_insight || {};
   const cycleCount = live?.cycle_count ?? 0;
   const lastUpdate = live?.last_update || "";
@@ -482,6 +483,43 @@ export default function Dashboard() {
                   ({aiPerf.metrics.total_evaluated} eval · {aiPerf.metrics.pending_evaluations} pending)
                 </div>
               </div>
+            </div>
+          )}
+          {/* Adaptive Learning */}
+          {adaptive && (
+            <div className="card" style={{ padding: "6px 10px", marginBottom: 6 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <span style={{ fontSize: 10, color: "#a78bfa", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Adaptive Learning
+                </span>
+                <span style={{
+                  fontSize: 9, padding: "1px 6px", borderRadius: 3, fontWeight: 600,
+                  background: adaptive.enabled ? "#22c55e18" : "#ef444418",
+                  color: adaptive.enabled ? "#22c55e" : "#ef4444",
+                }}>{adaptive.enabled ? "ON" : "OFF"}</span>
+              </div>
+              <div style={{ display: "flex", gap: 12, fontSize: 11, flexWrap: "wrap" }}>
+                <div><span style={{ color: "var(--text-muted)" }}>Tracked: </span><b>{adaptive.strategies_tracked || 0}</b></div>
+                <div><span style={{ color: "var(--text-muted)" }}>Adaptations: </span><b>{adaptive.total_adaptations || 0}</b></div>
+                <div><span style={{ color: "var(--text-muted)" }}>Next in: </span><b>{adaptive.next_learn_in || "—"} cycles</b></div>
+              </div>
+              {adaptive.best_by_regime && Object.keys(adaptive.best_by_regime).length > 0 && (
+                <div style={{ marginTop: 4, fontSize: 10 }}>
+                  <span style={{ color: "var(--text-muted)" }}>Best by regime: </span>
+                  {Object.entries(adaptive.best_by_regime).map(([regime, d]) => (
+                    <span key={regime} style={{ marginRight: 8 }}>
+                      <span style={{ color: "#9ca3af" }}>{regime}: </span>
+                      <span style={{ fontWeight: 600 }}>{d.strategy}</span>
+                      <span style={{ color: "var(--text-muted)" }}> ({d.win_rate}%)</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {adaptive.recent_adaptations?.length > 0 && (
+                <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-muted)", fontStyle: "italic" }}>
+                  Latest: {adaptive.recent_adaptations[0]?.reason || adaptive.recent_adaptations[0]?.type}
+                </div>
+              )}
             </div>
           )}
           {/* Equity */}

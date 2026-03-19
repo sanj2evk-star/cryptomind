@@ -405,6 +405,38 @@ def get_public_journal(limit: int = Query(default=20, ge=1, le=100)):
     return {"count": len(entries), "entries": entries}
 
 
+@app.get("/adaptive")
+def get_adaptive_status():
+    """Adaptive learning system status."""
+    try:
+        import adaptive_learner
+        return adaptive_learner.get_status()
+    except Exception as e:
+        return {"enabled": False, "error": str(e)}
+
+
+@app.post("/adaptive/toggle")
+def toggle_adaptive(enabled: bool = True):
+    """Enable or disable adaptive learning."""
+    try:
+        import adaptive_learner
+        adaptive_learner.set_enabled(enabled)
+        return {"enabled": enabled}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/adaptive/reset")
+def reset_adaptive():
+    """Reset all adaptive learning state."""
+    try:
+        import adaptive_learner
+        adaptive_learner.reset_all()
+        return {"status": "reset"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/leaderboard")
 def get_leaderboard():
     """Multi-strategy leaderboard. No auth required."""

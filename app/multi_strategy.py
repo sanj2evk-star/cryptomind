@@ -634,6 +634,16 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     s["last_action"] = action
     s["last_reason"] = ". ".join(reasons[:3]) if reasons else "Neutral"
 
+    # Record trade result for adaptive learner
+    if action == "SELL" and pnl != 0:
+        try:
+            import adaptive_learner
+            result = "win" if pnl > 0 else ("loss" if pnl < 0 else "flat")
+            regime = mkt.get("state", "SLEEPING") if isinstance(mkt, dict) else str(mkt)
+            adaptive_learner.record_trade_result(name, regime, result, pnl)
+        except Exception:
+            pass
+
     # Trade log with full context
     if action != "HOLD":
         s["trade_history"].append({
@@ -685,6 +695,26 @@ def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
     # Periodic capital reallocation
     if _cycle_count - _last_realloc_cycle >= REALLOC_INTERVAL:
         _reallocate_capital(price)
+
+    # Adaptive learning pass
+    try:
+        import adaptive_learner
+        learn_result = adaptive_learner.run_learning_pass(
+            _strategies, _allocations, {n: PROFILES[n] for n in PROFILES}, mkt.get("state", "SLEEPING")
+        )
+        if not learn_result.get("skipped"):
+            # Apply allocation adjustments
+            for name, delta in learn_result.get("allocation_adjustments", {}).items():
+                if name in _allocations:
+                    _allocations[name] = max(0.05, min(0.30, _allocations[name] + delta))
+            # Apply threshold adjustments
+            for name, adjs in learn_result.get("threshold_adjustments", {}).items():
+                if name in PROFILES:
+                    for field, delta in adjs.items():
+                        if field in PROFILES[name]:
+                            PROFILES[name][field] += delta
+    except Exception:
+        pass
 
     # Auto-switch + kill/revive
     _check_auto_switch(price)
