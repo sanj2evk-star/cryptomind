@@ -113,6 +113,54 @@ export default function Leaderboard() {
         <EmptyState title="Waiting for data" message="Strategies will appear after the first cycle." />
       )}
 
+      {/* Allocation Chart */}
+      {Object.keys(allocations).length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <h3 style={{ color: "var(--text-muted)", marginBottom: 12 }}>Capital Allocation</h3>
+          <div className="card">
+            {/* Stacked bar */}
+            <div style={{ display: "flex", borderRadius: 6, overflow: "hidden", height: 32, marginBottom: 14 }}>
+              {board.map((s) => {
+                const pct = s.allocation_pct ?? allocations[s.strategy] ?? 20;
+                return (
+                  <div key={s.strategy} style={{
+                    width: `${pct}%`, background: s.color || PROFILES_COLORS[s.strategy] || "#666",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 10, fontWeight: 700, color: "#fff", minWidth: pct > 8 ? 0 : 0,
+                    transition: "width 0.5s ease",
+                  }}>
+                    {pct >= 12 ? `${pct.toFixed(0)}%` : ""}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Legend */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, justifyContent: "center" }}>
+              {board.map((s) => {
+                const pct = s.allocation_pct ?? allocations[s.strategy] ?? 20;
+                return (
+                  <div key={s.strategy} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11 }}>
+                    <span style={{
+                      width: 10, height: 10, borderRadius: 2, flexShrink: 0,
+                      background: s.color || PROFILES_COLORS[s.strategy] || "#666",
+                    }} />
+                    <span style={{ color: "var(--text-muted)" }}>{s.label || s.strategy}</span>
+                    <span style={{ fontWeight: 700 }}>{pct.toFixed(0)}%</span>
+                    <span style={{
+                      fontSize: 9, padding: "1px 4px", borderRadius: 2,
+                      background: s.status === "INACTIVE" ? "#ef444422" : "transparent",
+                      color: s.status === "INACTIVE" ? "#ef4444" : "var(--text-muted)",
+                    }}>
+                      {s.status === "INACTIVE" ? "OFF" : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Strategy Detail Cards */}
       <h3 style={{ color: "var(--text-muted)", marginBottom: 12 }}>Strategy Details</h3>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>

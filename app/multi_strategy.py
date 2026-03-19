@@ -449,6 +449,12 @@ def _compute_leaderboard(price: float) -> list[dict]:
     return board
 
 
+def get_event_log() -> list:
+    """Return full event log (newest first)."""
+    _ensure_initialized()
+    return _event_log[::-1]
+
+
 def get_leaderboard() -> dict:
     _ensure_initialized()
     price = trader_state.get("last_price", 0)

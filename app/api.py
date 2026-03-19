@@ -382,6 +382,36 @@ def get_leaderboard():
         return {"error": str(e), "leaderboard": [], "strategies": {}}
 
 
+@app.get("/strategy-events")
+def get_strategy_events(limit: int = Query(default=50, ge=1, le=200)):
+    """Strategy engine events (switches, kills, revivals, reallocations)."""
+    try:
+        import multi_strategy
+        events = multi_strategy.get_event_log()
+        return {"count": len(events[-limit:]), "events": events[-limit:]}
+    except Exception as e:
+        return {"count": 0, "events": [], "error": str(e)}
+
+
+@app.get("/strategy-allocations")
+def get_strategy_allocations():
+    """Current capital allocation per strategy."""
+    try:
+        import multi_strategy
+        lb = multi_strategy.get_leaderboard()
+        allocations = {
+            name: {
+                "allocation_pct": s.get("allocation_pct", 20),
+                "equity": s.get("equity", 100),
+                "status": s.get("status", "ACTIVE"),
+            }
+            for name, s in lb.get("strategies", {}).items()
+        }
+        return {"allocations": allocations, "total_strategies": len(allocations)}
+    except Exception as e:
+        return {"allocations": {}, "error": str(e)}
+
+
 @app.get("/insight")
 def get_session_insight():
     """Current session insight — trader-style summary. No auth required."""
@@ -489,6 +519,31 @@ if _frontend_dir:
     # Serve static assets (JS, CSS, images)
     if (_frontend_dir / "assets").exists():
         app.mount("/assets", StaticFiles(directory=str(_frontend_dir / "assets")), name="static-assets")
+
+    # Serve PWA files from root
+    _sw_path = _frontend_dir / "sw.js"
+    _manifest_path = _frontend_dir / "manifest.json"
+
+    if _sw_path.exists():
+        @app.get("/sw.js")
+        async def serve_sw():
+            return FileResponse(str(_sw_path), media_type="application/javascript",
+                                headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
+
+    if _manifest_path.exists():
+        @app.get("/manifest.json")
+        async def serve_manifest():
+            return FileResponse(str(_manifest_path), media_type="application/manifest+json")
+
+    # Serve PWA icons
+    for icon_name in ["icon-192.png", "icon-512.png"]:
+        _icon_path = _frontend_dir / icon_name
+        if _icon_path.exists():
+            def _make_icon_route(p):
+                @app.get(f"/{p.name}")
+                async def serve_icon(path=p):
+                    return FileResponse(str(path), media_type="image/png")
+            _make_icon_route(_icon_path)
 
     print(f"[api] Serving frontend from {_frontend_dir} (SPA routes: {_SPA_PATHS})")
 else:
