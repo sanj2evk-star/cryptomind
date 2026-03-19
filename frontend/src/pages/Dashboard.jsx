@@ -79,6 +79,7 @@ export default function Dashboard() {
   const { data: live, loading: lLoad, error: lErr, retry: rLive } = useApi("/live", 5000);
   const { data: autoTrades, retry: rTrades } = useApi("/auto/trades?limit=15", 10000);
   const { data: autoEquity, retry: rEquity } = useApi("/auto/equity?limit=100", 10000);
+  const { data: aiPerf } = useApi("/ai-performance", 30000);
 
   const { status: sysStatus, lastPing } = useKeepAlive();
   const { enabled: soundEnabled, toggle: toggleSound, checkTrades: checkTradeSound } = useTradeSound();
@@ -449,6 +450,38 @@ export default function Dashboard() {
                 </div>
               </div>
               <div style={{ fontSize: 14, color: "var(--text)", lineHeight: 1.6 }}>{insightText}</div>
+            </div>
+          )}
+          {/* AI Performance — minimal */}
+          {aiPerf?.metrics?.total_evaluated > 0 && (
+            <div style={{
+              padding: "8px 12px", borderRadius: 5,
+              background: "var(--surface)", border: "1px solid var(--border)",
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>AI Performance</div>
+              <div style={{ display: "flex", gap: 12, fontSize: 12 }}>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Accuracy </span>
+                  <span style={{ fontWeight: 700, color: aiPerf.metrics.accuracy_pct >= 50 ? "var(--green)" : "var(--red)" }}>
+                    {aiPerf.metrics.accuracy_pct}%
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Hi-Conf </span>
+                  <span style={{ fontWeight: 700, color: aiPerf.metrics.high_conf_accuracy_pct >= 50 ? "var(--green)" : "var(--red)" }}>
+                    {aiPerf.metrics.high_conf_accuracy_pct}%
+                  </span>
+                </div>
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Overconf </span>
+                  <span style={{ fontWeight: 700, color: aiPerf.metrics.overconfidence_pct > 30 ? "var(--red)" : "var(--text-muted)" }}>
+                    {aiPerf.metrics.overconfidence_pct}%
+                  </span>
+                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: 10 }}>
+                  ({aiPerf.metrics.total_evaluated} eval · {aiPerf.metrics.pending_evaluations} pending)
+                </div>
+              </div>
             </div>
           )}
           {/* Equity */}

@@ -1221,6 +1221,19 @@ def run_cycle(user_id: str = "admin") -> dict:
     except Exception as e:
         print(f"[multi_strategy] Error: {e}")
 
+    # --- Confidence tracking ---
+    try:
+        import confidence_tracker
+        confidence_tracker.record_decision(
+            action=decision.get("action", "HOLD"),
+            confidence=float(decision.get("confidence", 0)),
+            score=float(decision.get("score", 50)),
+            price=price,
+        )
+        confidence_tracker.evaluate_pending(price)
+    except Exception as e:
+        print(f"[confidence_tracker] Error: {e}")
+
     # --- Session tracking ---
     _state["session_cycles"] += 1
     act = result["action"]

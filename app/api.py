@@ -371,6 +371,19 @@ def get_live_state():
     return auto_trader.get_state()
 
 
+@app.get("/ai-performance")
+def get_ai_performance():
+    """AI confidence vs reality metrics. No auth required."""
+    try:
+        import confidence_tracker
+        return {
+            "metrics": confidence_tracker.get_metrics(),
+            "recent": confidence_tracker.get_recent_evaluated(limit=10),
+        }
+    except Exception as e:
+        return {"metrics": {}, "recent": [], "error": str(e)}
+
+
 @app.get("/price-history")
 def get_price_history():
     """Return raw price history from auto-trader memory. No auth, ultra-lightweight."""
