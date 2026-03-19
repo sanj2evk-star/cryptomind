@@ -30,7 +30,7 @@ export default function SimpleEquityChart({ equity }) {
   const eqHeight = isTouch ? 200 : 180;
 
   return (
-    <div className="chart-wrap">
+    <div className="chart-wrap" style={{ height: eqHeight + 30, overflow: "hidden" }}>
       <h3 style={{ fontSize: 12, marginBottom: 4 }}>Equity Curve</h3>
       <ResponsiveContainer width="100%" height={eqHeight}>
         <LineChart data={points} margin={{ top: 5, right: 16, bottom: 5, left: 8 }}>

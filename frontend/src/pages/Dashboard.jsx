@@ -357,7 +357,7 @@ export default function Dashboard() {
       </div>
 
       {/* ── Insight + Equity (left) | Auto-Trades (right) ── */}
-      <div className="bottom-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 6, marginBottom: 6 }}>
+      <div className="bottom-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 6, marginBottom: 6, alignItems: "start" }}>
 
         {/* Left: Insight + Equity stacked */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
