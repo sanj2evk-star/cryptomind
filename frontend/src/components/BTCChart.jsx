@@ -54,7 +54,7 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
       // Create chart
       const chart = createChart(containerRef.current, {
         width: containerRef.current.clientWidth,
-        height: 300,
+        height: 340,
         layout: {
           background: { type: ColorType.Solid, color: "transparent" },
           textColor: "#9ca3af",

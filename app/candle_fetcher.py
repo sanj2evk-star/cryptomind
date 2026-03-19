@@ -137,6 +137,81 @@ def _fetch_coingecko_line(interval: str = "5m") -> list[dict]:
     return candles
 
 
+def _fetch_coinbase(interval: str = "5m") -> list[dict]:
+    """Fetch candles from Coinbase Pro (no auth needed)."""
+    granularity_map = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+    gran = granularity_map.get(interval, 300)
+    url = f"https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity={gran}"
+    raw = _fetch_json(url, timeout=15)
+    # Coinbase returns [[time, low, high, open, close, volume], ...] newest first
+    candles = []
+    for k in reversed(raw):
+        candles.append({
+            "time": int(k[0]),
+            "open": float(k[3]),
+            "high": float(k[2]),
+            "low": float(k[1]),
+            "close": float(k[4]),
+            "volume": float(k[5]),
+        })
+    return candles
+
+
+def _generate_from_trader_history(interval: str = "5m") -> list[dict]:
+    """Generate synthetic candles from auto_trader's in-memory price history."""
+    try:
+        import auto_trader
+        state = auto_trader.trader_state
+        history = state.get("price_history", [])
+        timestamps = state.get("timestamp_history", [])
+        if len(history) < 10:
+            return []
+
+        interval_seconds = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+        bucket_size = interval_seconds.get(interval, 300)
+        now = int(time.time())
+
+        candles = []
+        bucket_prices = []
+        bucket_start = None
+
+        for i, price in enumerate(history):
+            # Estimate timestamp from position
+            ts = now - (len(history) - i) * 30  # ~30s between readings
+            bucket = ts - (ts % bucket_size)
+
+            if bucket_start is None:
+                bucket_start = bucket
+
+            if bucket != bucket_start and bucket_prices:
+                candles.append({
+                    "time": bucket_start,
+                    "open": bucket_prices[0],
+                    "high": max(bucket_prices),
+                    "low": min(bucket_prices),
+                    "close": bucket_prices[-1],
+                    "volume": 0,
+                })
+                bucket_prices = [price]
+                bucket_start = bucket
+            else:
+                bucket_prices.append(price)
+
+        if bucket_prices and bucket_start:
+            candles.append({
+                "time": bucket_start,
+                "open": bucket_prices[0],
+                "high": max(bucket_prices),
+                "low": min(bucket_prices),
+                "close": bucket_prices[-1],
+                "volume": 0,
+            })
+
+        return candles if len(candles) >= 5 else []
+    except Exception:
+        return []
+
+
 def _calc_ema(candles: list[dict], period: int) -> list[dict]:
     """Calculate EMA over candle closes. Returns list of {time, value}."""
     if len(candles) < period:
@@ -181,26 +256,44 @@ def fetch_candles(interval: str = "5m", with_ema: bool = True) -> dict:
         if time.time() - cached["ts"] < ttl:
             return cached["data"]
 
-    # Try Binance first
+    # Try sources in order
     candles = []
     source = "unknown"
+    errors = []
 
+    # 1. Binance
     try:
         candles = _fetch_binance(interval)
         source = "binance"
-    except Exception:
-        pass
+    except Exception as e:
+        errors.append(f"binance: {e}")
 
-    # Fallback to CoinGecko
+    # 2. CoinGecko
     if not candles:
         try:
             candles = _fetch_coingecko_line(interval)
             source = "coingecko"
-        except Exception:
-            pass
+        except Exception as e:
+            errors.append(f"coingecko: {e}")
+
+    # 3. Coinbase (price history via candles endpoint)
+    if not candles:
+        try:
+            candles = _fetch_coinbase(interval)
+            source = "coinbase"
+        except Exception as e:
+            errors.append(f"coinbase: {e}")
+
+    # 4. Generate synthetic candles from auto_trader price history
+    if not candles:
+        try:
+            candles = _generate_from_trader_history(interval)
+            source = "local"
+        except Exception as e:
+            errors.append(f"local: {e}")
 
     if not candles:
-        return {"candles": [], "ema9": [], "ema21": [], "source": "none", "interval": interval, "count": 0}
+        return {"candles": [], "ema9": [], "ema21": [], "source": "none", "interval": interval, "count": 0, "errors": errors}
 
     result = {
         "candles": candles,
