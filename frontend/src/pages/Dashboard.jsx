@@ -92,6 +92,12 @@ export default function Dashboard() {
     setTimeout(() => setRefreshing(false), 1200);
   }, [rLive, rTrades, rEquity]);
 
+  // Sound notification on new trades (MUST be before early returns)
+  useEffect(() => {
+    const t = autoTrades?.trades;
+    if (t && t.length > 0) checkTradeSound(t);
+  }, [autoTrades, checkTradeSound]);
+
   if (lLoad && !live) return <><h1>Dashboard</h1><Loading message="Connecting to auto-trader..." /></>;
   if (lErr && !live) return <><h1>Dashboard</h1><ErrorBox message={lErr} onRetry={refreshAll} /></>;
 
@@ -135,11 +141,6 @@ export default function Dashboard() {
   const trades = autoTrades?.trades || [];
   const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
   const maxTradeRows = isTouch ? 12 : 15;
-
-  // Sound notification on new trades
-  useEffect(() => {
-    if (trades.length > 0) checkTradeSound(trades);
-  }, [trades, checkTradeSound]);
 
   return (
     <>
