@@ -394,6 +394,36 @@ def get_candles(interval: str = Query(default="5m")):
         return {"candles": [], "ema9": [], "ema21": [], "source": "error", "interval": interval, "count": 0, "error": str(e)}
 
 
+@app.post("/strategy/{name}/pause")
+def pause_strategy(name: str):
+    """Pause a strategy — stops trading, keeps observing."""
+    try:
+        import multi_strategy
+        return multi_strategy.pause_strategy(name.upper())
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/strategy/{name}/resume")
+def resume_strategy(name: str):
+    """Resume a paused or killed strategy."""
+    try:
+        import multi_strategy
+        return multi_strategy.resume_strategy(name.upper())
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/strategy/{name}/kill")
+def kill_strategy(name: str):
+    """Kill a strategy completely."""
+    try:
+        import multi_strategy
+        return multi_strategy.kill_strategy(name.upper())
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/strategy-events")
 def get_strategy_events(limit: int = Query(default=50, ge=1, le=200)):
     """Strategy engine events (switches, kills, revivals, reallocations)."""
