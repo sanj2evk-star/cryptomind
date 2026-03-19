@@ -49,9 +49,13 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
     const pctChange = ((last.close - first.open) / first.open * 100);
     setPriceChange(pctChange);
 
+    // Responsive chart height: smaller on tablet, larger on desktop
+    const vw = window.innerWidth;
+    const chartHeight = vw <= 1400 ? 260 : 340;
+
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
-      height: 340,
+      height: chartHeight,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#6b728066",
@@ -198,12 +202,13 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
     };
   }, [interval, mode, fetchCandles]);
 
-  // Polling
+  // Polling + auto-retry on error
   useEffect(() => {
-    const ms = { "1m": 15000, "5m": 30000, "15m": 60000, "1h": 120000 }[interval] || 30000;
+    const normalMs = { "1m": 15000, "5m": 30000, "15m": 60000, "1h": 120000 }[interval] || 30000;
+    const ms = error ? 10000 : normalMs; // retry every 10s on error
     pollRef.current = window.setInterval(() => fetchCandles(interval, mode), ms);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [interval, mode, fetchCandles]);
+  }, [interval, mode, fetchCandles, error]);
 
   const stateColors = { SLEEPING: "#6b7280", WAKING_UP: "#eab308", ACTIVE: "#22c55e", BREAKOUT: "#ef4444" };
   const actionColors = { BUY: "#22c55e", SELL: "#ef4444", HOLD: "#6b7280" };
@@ -277,20 +282,22 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
       </div>
 
       {/* Chart */}
-      <div style={{ position: "relative", minHeight: 340 }}>
+      <div style={{ position: "relative", minHeight: 260 }}>
         {loading && !lastCandle && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2 }}>
-            <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Loading chart...</span>
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
+            <div className="spinner" />
+            <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Connecting to market data...</span>
           </div>
         )}
         {error && !lastCandle && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 6 }}>
-            <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Chart unavailable</span>
-            <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{error}</span>
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
+            <div className="spinner" />
+            <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Reconnecting to market data...</span>
+            <span style={{ color: "var(--text-muted)", fontSize: 10, opacity: 0.5 }}>Auto-retrying every 10s</span>
             <button onClick={() => fetchCandles(interval, mode)} style={{
-              padding: "3px 10px", background: "var(--bg)", border: "1px solid var(--border)",
-              borderRadius: 3, color: "var(--text)", fontSize: 10, cursor: "pointer",
-            }}>Retry</button>
+              padding: "4px 14px", background: "var(--bg)", border: "1px solid var(--border)",
+              borderRadius: 4, color: "var(--text)", fontSize: 11, cursor: "pointer", marginTop: 4,
+            }}>Retry now</button>
           </div>
         )}
         <div ref={containerRef} style={{ width: "100%" }} />

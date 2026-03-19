@@ -116,32 +116,43 @@ export default function App() {
   // 3. Backend up, not logged in
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const navItems = [
+    { to: "/", icon: "📊", label: "Dashboard" },
+    { to: "/trades", icon: "📈", label: "Trades" },
+    { to: "/performance", icon: "🏆", label: "Performance" },
+    { to: "/journal", icon: "📝", label: "Journal" },
+    { to: "/leaderboard", icon: "🏅", label: "Leaderboard" },
+  ];
+
   // 4. Backend up, logged in → full app
   return (
     <div className="app">
-      <nav className="sidebar">
-        <h2>CryptoMind</h2>
-        <NavLink to="/" className={({ isActive }) => (isActive ? "active" : "")}>
-          Dashboard
-        </NavLink>
-        <NavLink to="/trades" className={({ isActive }) => (isActive ? "active" : "")}>
-          Trades
-        </NavLink>
-        <NavLink to="/performance" className={({ isActive }) => (isActive ? "active" : "")}>
-          Performance
-        </NavLink>
-        <NavLink to="/journal" className={({ isActive }) => (isActive ? "active" : "")}>
-          Journal
-        </NavLink>
-        <NavLink to="/leaderboard" className={({ isActive }) => (isActive ? "active" : "")}>
-          Leaderboard
-        </NavLink>
+      <nav
+        className={`sidebar ${sidebarOpen ? "sidebar--open" : ""}`}
+        onMouseEnter={() => setSidebarOpen(true)}
+        onMouseLeave={() => setSidebarOpen(false)}
+      >
+        <h2 className="sidebar__title">{sidebarOpen ? "CryptoMind" : "CM"}</h2>
+        {navItems.map(item => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) => (isActive ? "active" : "")}
+            onClick={() => setSidebarOpen(false)}
+          >
+            <span className="sidebar__icon">{item.icon}</span>
+            <span className="sidebar__label">{item.label}</span>
+          </NavLink>
+        ))}
         <a
           href="#"
           onClick={(e) => { e.preventDefault(); handleLogout(); }}
           style={{ marginTop: "auto", color: "var(--red)" }}
         >
-          Logout
+          <span className="sidebar__icon">🚪</span>
+          <span className="sidebar__label">Logout</span>
         </a>
       </nav>
       <main className="content">

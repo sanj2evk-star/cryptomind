@@ -28,7 +28,7 @@ export default function SimpleEquityChart({ equity }) {
   return (
     <div className="chart-wrap">
       <h3>Equity Curve</h3>
-      <ResponsiveContainer width="100%" height={160}>
+      <ResponsiveContainer width="100%" height={130}>
         <LineChart data={points} margin={{ top: 5, right: 16, bottom: 5, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
           <XAxis

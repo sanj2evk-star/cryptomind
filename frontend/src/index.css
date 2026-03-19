@@ -45,17 +45,36 @@ a {
   flex-direction: column;
   gap: 2px;
   flex-shrink: 0;
+  transition: width 0.2s ease;
+  overflow: hidden;
 }
 
-.sidebar h2 {
+.sidebar__title {
   font-size: 13px;
   color: var(--text-muted);
   letter-spacing: 0.05em;
   margin-bottom: 12px;
+  white-space: nowrap;
+}
+
+.sidebar h2 { font-size: 13px; color: var(--text-muted); letter-spacing: 0.05em; margin-bottom: 12px; }
+
+.sidebar__icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.sidebar__label {
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .sidebar a {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 7px 10px;
   border-radius: 5px;
   color: var(--text-muted);
@@ -279,42 +298,97 @@ tr:last-child td {
    and OnePlus Pad 3 (tablet, 7:5, ~800-1024px CSS width)
    ===================================================================== */
 
-/* ---------- TABLET: OnePlus Pad 3 (7:5, 800-1199px) ---------- */
-@media (min-width: 800px) and (max-width: 1199px) {
+/* ---------- TABLET: iPad / OnePlus Pad (800-1400px) ---------- */
+@media (min-width: 800px) and (max-width: 1400px) {
+  /* Collapsed sidebar — icons only, expand on hover */
   .sidebar {
+    width: 52px;
+    padding: 14px 6px;
+    align-items: center;
+  }
+
+  .sidebar.sidebar--open {
     width: 170px;
-    padding: 18px 10px;
+    align-items: stretch;
+    padding: 14px 10px;
+  }
+
+  .sidebar__title {
+    font-size: 12px;
+    text-align: center;
   }
 
   .sidebar h2 {
-    font-size: 14px;
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .sidebar__label {
+    display: none;
+  }
+
+  .sidebar.sidebar--open .sidebar__label {
+    display: inline;
   }
 
   .sidebar a {
-    font-size: 14px;
-    padding: 9px 12px;
+    font-size: 13px;
+    padding: 8px 6px;
+    justify-content: center;
   }
 
+  .sidebar.sidebar--open a {
+    justify-content: flex-start;
+    padding: 8px 10px;
+  }
+
+  .sidebar__icon {
+    font-size: 16px;
+  }
+
+  /* Content area — more space since sidebar is thin */
   .content {
-    padding: 22px;
+    padding: 16px 20px;
     max-width: 100%;
   }
 
   .content h1 {
-    font-size: 20px;
+    font-size: 18px;
+    margin-bottom: 10px;
   }
 
-  .card-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-  }
-
+  /* Better readability for key values on tablet */
   .card .value {
     font-size: 18px;
   }
 
+  .card .label {
+    font-size: 10px;
+  }
+
   table {
     font-size: 12px;
+  }
+
+  th, td {
+    padding: 5px 8px;
+  }
+
+  /* Tighter chart height on tablet */
+  .chart-wrap {
+    margin-bottom: 8px;
+  }
+
+  /* Reduce metric strip padding on tablet */
+  .metric-strip .metric-card {
+    padding: 12px 14px !important;
+  }
+  .metric-strip .metric-card .metric-value {
+    font-size: 18px !important;
+  }
+
+  .section {
+    margin-bottom: 8px;
   }
 }
 

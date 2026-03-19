@@ -228,7 +228,7 @@ export default function Dashboard() {
       </div>
 
       {/* ── BTC Chart (HERO — preserved height) ── */}
-      <Suspense fallback={<div className="card" style={{ height: 340, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", marginBottom: 8 }}>Loading chart...</div>}>
+      <Suspense fallback={<div className="card" style={{ height: 260, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", marginBottom: 8 }}>Loading chart...</div>}>
         <BTCChart
           marketState={mktStateName}
           action={decision?.action}
