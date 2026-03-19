@@ -94,6 +94,7 @@ function StartupCheck() {
 export default function App() {
   const { status: health, retry: retryHealth } = useHealthCheck();
   const [authed, setAuthed] = useState(!!getToken());
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = useCallback(() => {
     clearToken();
@@ -115,8 +116,6 @@ export default function App() {
 
   // 3. Backend up, not logged in
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
-
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navItems = [
     { to: "/", icon: "📊", label: "Dashboard" },
