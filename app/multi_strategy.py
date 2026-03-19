@@ -57,8 +57,14 @@ KILL_MIN_WINRATE = 30.0
 REVIVE_COOLDOWN = 120
 
 # ---------------------------------------------------------------------------
-# State
+# State — SINGLE GLOBAL PORTFOLIO
 # ---------------------------------------------------------------------------
+
+# The ONE source of truth
+_portfolio = {
+    "total_cash": INITIAL_BALANCE,
+    "total_btc": 0.0,
+}
 
 _strategies: dict[str, dict] = {}
 _leaderboard: list[dict] = []
@@ -81,18 +87,20 @@ def _log_event(event: str, **kwargs):
 
 
 def _init_strategy(name: str) -> dict:
+    """Strategy tracks its OWN performance, but draws from global portfolio."""
     return {
         "name": name,
         "status": "ACTIVE",           # ACTIVE, PAUSED, INACTIVE (killed), LEADING
-        "balance": INITIAL_BALANCE,
-        "btc_holdings": 0.0,
+        # Virtual tracking (no separate balance — uses global pool)
+        "btc_holdings": 0.0,          # BTC this strategy is holding
         "entry_price": 0.0,
+        "cash_used": 0.0,             # how much cash this strategy has locked in trades
         "total_trades": 0,
         "wins": 0,
         "losses": 0,
         "consecutive_losses": 0,
-        "realized_pnl": 0.0,
-        "peak_equity": INITIAL_BALANCE,
+        "realized_pnl": 0.0,          # cumulative P&L from closed trades
+        "peak_virtual_equity": 0.0,   # for drawdown calc
         "max_drawdown": 0.0,
         "last_trade_time": 0,
         "last_action": "HOLD",
@@ -102,9 +110,23 @@ def _init_strategy(name: str) -> dict:
         "killed_at_cycle": 0,
         "trades_this_minute": 0,
         "minute_marker": 0,
-        "allocation_pct": 1.0 / len(PROFILES),
         "_prev_market": "SLEEPING",
     }
+
+
+def _get_global_equity(price: float) -> float:
+    """Total portfolio value = cash + all BTC positions."""
+    btc_value = sum(s["btc_holdings"] * price for s in _strategies.values())
+    return _portfolio["total_cash"] + btc_value
+
+
+def _get_strategy_virtual_equity(name: str, price: float) -> float:
+    """Virtual equity for a strategy = allocated capital + unrealized + realized PnL."""
+    s = _strategies[name]
+    alloc_pct = _allocations.get(name, 0)
+    base_alloc = INITIAL_BALANCE * alloc_pct  # what it was given
+    unrealized = (price - s["entry_price"]) * s["btc_holdings"] if s["btc_holdings"] > 0 else 0
+    return base_alloc + s["realized_pnl"] + unrealized
 
 
 def _ensure_initialized():
@@ -112,7 +134,11 @@ def _ensure_initialized():
     if not _strategies:
         for name in PROFILES:
             _strategies[name] = _init_strategy(name)
-        _allocations = {n: 1.0 / len(PROFILES) for n in PROFILES}
+        n = len(PROFILES)
+        _allocations = {name: 1.0 / n for name in PROFILES}
+        # Set initial peak equity
+        for name in PROFILES:
+            _strategies[name]["peak_virtual_equity"] = INITIAL_BALANCE / n
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +227,12 @@ def _force_switch_primary():
 
 def _get_performance(name: str, price: float) -> dict:
     s = _strategies[name]
-    equity = s["balance"] + s["btc_holdings"] * price
-    total_return = ((equity - INITIAL_BALANCE) / INITIAL_BALANCE) * 100
+    alloc_pct = _allocations.get(name, 1.0 / len(PROFILES))
+    allocated_capital = round(INITIAL_BALANCE * alloc_pct, 4)
+    virtual_equity = _get_strategy_virtual_equity(name, price)
+    base = INITIAL_BALANCE * alloc_pct
+    total_return = ((virtual_equity - base) / base * 100) if base > 0 else 0
+
     trades = s["total_trades"]
     wins = s["wins"]
     losses = s["losses"]
@@ -210,7 +240,8 @@ def _get_performance(name: str, price: float) -> dict:
     avg_profit = s["realized_pnl"] / trades if trades > 0 else 0
 
     return {
-        "equity": equity,
+        "allocated_capital": allocated_capital,
+        "virtual_equity": round(virtual_equity, 4),
         "total_return": total_return,
         "win_rate": win_rate,
         "trade_count": trades,
@@ -385,13 +416,15 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     reasons = []
 
     btc = s["btc_holdings"]
-    cash = s["balance"]
+    global_cash = _portfolio["total_cash"]
+    alloc_pct = _allocations.get(name, 1.0 / len(PROFILES))
+    available_cash = global_cash * alloc_pct  # this strategy's share of cash
     action = "HOLD"
 
     # --- Special logic: Mean Reverter (RSI-based) ---
     if profile.get("use_rsi_logic"):
         rsi = indicators.get("rsi", 50)
-        if rsi < 40 and cash > 1.0 and btc < 0.0001:
+        if rsi < 40 and available_cash > 0.5 and btc < 0.0001:
             action = "BUY"
             reasons.append(f"RSI {rsi:.0f} < 40 — oversold")
         elif rsi > 60 and btc > 0:
@@ -402,7 +435,7 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     elif profile.get("use_breakout_logic"):
         vol = indicators.get("volatility", 0)
         accel = indicators.get("acceleration", 0)
-        if vol > 0.001 and accel > 15 and cash > 1.0 and btc < 0.0001:
+        if vol > 0.001 and accel > 15 and available_cash > 0.5 and btc < 0.0001:
             action = "BUY"
             reasons.append(f"Breakout: vol={vol:.4f} accel={accel:.1f}")
         elif btc > 0 and (accel < -10 or total_score < sell_t):
@@ -411,7 +444,7 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
 
     # --- Standard scoring logic ---
     else:
-        if total_score >= buy_t and cash > 1.0 and btc < 0.0001:
+        if total_score >= buy_t and available_cash > 0.5 and btc < 0.0001:
             action = "BUY"
             reasons.append(f"Score {total_score:.0f} >= {buy_t}")
         elif total_score <= sell_t and btc > 0:
@@ -439,31 +472,37 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
         action = "HOLD"
         reasons.append(f"Rate limit ({max_tpm}/min)")
 
-    # Anti flip-flop: prevent buy→sell or sell→buy within 2 cycles
+    # Anti flip-flop
     if action != "HOLD" and s["last_action"] != "HOLD" and action != s["last_action"] and since < profile["cooldown"] * 1.5:
         action = "HOLD"
         reasons.append("Anti flip-flop")
 
-    # Execute
+    # ── Execute against GLOBAL portfolio ──
     pnl = 0.0
     if action == "BUY":
-        alloc = _allocations.get(name, 0.1)
-        spend = cash * profile["position_pct"] * max(alloc * len(PROFILES), 0.5)
-        spend = min(spend, cash * 0.95)  # never use all cash
-        qty = spend / price
-        s["balance"] -= spend
-        s["btc_holdings"] += qty
-        s["entry_price"] = price
-        s["total_trades"] += 1
-        s["last_trade_time"] = time.time()
-        s["trades_this_minute"] += 1
-        reasons.append(f"Bought {qty:.6f} BTC @ ${price:,.2f}")
+        spend = available_cash * profile["position_pct"]
+        spend = min(spend, _portfolio["total_cash"] * 0.3)  # cap at 30% of total cash per trade
+        spend = min(spend, _portfolio["total_cash"] - 1.0)  # keep $1 reserve
+        if spend < 0.1:
+            action = "HOLD"
+            reasons.append("Insufficient allocated capital")
+        else:
+            qty = spend / price
+            _portfolio["total_cash"] -= spend
+            s["btc_holdings"] += qty
+            s["entry_price"] = price
+            s["cash_used"] = spend
+            s["total_trades"] += 1
+            s["last_trade_time"] = time.time()
+            s["trades_this_minute"] += 1
+            reasons.append(f"Bought {qty:.6f} BTC (${spend:.2f}) @ ${price:,.2f}")
 
     elif action == "SELL" and btc > 0:
         revenue = btc * price
         pnl = (price - s["entry_price"]) * btc
-        s["balance"] += revenue
+        _portfolio["total_cash"] += revenue
         s["btc_holdings"] = 0.0
+        s["cash_used"] = 0.0
         s["realized_pnl"] += pnl
         s["total_trades"] += 1
         s["last_trade_time"] = time.time()
@@ -479,11 +518,11 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
             s["consecutive_losses"] += 1
         reasons.append(f"Sold. PnL: ${pnl:.6f}")
 
-    # Equity tracking
-    equity = s["balance"] + s["btc_holdings"] * price
-    if equity > s["peak_equity"]:
-        s["peak_equity"] = equity
-    dd = (s["peak_equity"] - equity) / s["peak_equity"] * 100 if s["peak_equity"] > 0 else 0
+    # Virtual equity tracking for drawdown
+    v_eq = _get_strategy_virtual_equity(name, price)
+    if v_eq > s["peak_virtual_equity"]:
+        s["peak_virtual_equity"] = v_eq
+    dd = (s["peak_virtual_equity"] - v_eq) / s["peak_virtual_equity"] * 100 if s["peak_virtual_equity"] > 0 else 0
     if dd > s["max_drawdown"]:
         s["max_drawdown"] = dd
 
@@ -566,7 +605,8 @@ def _compute_leaderboard(price: float) -> list[dict]:
             "color": PROFILES[name]["color"],
             "desc": PROFILES[name]["desc"],
             "status": s["status"],
-            "equity": round(p["equity"], 4),
+            "equity": round(p["virtual_equity"], 4),
+            "allocated_capital": round(p["allocated_capital"], 2),
             "total_return": round(p["total_return"], 2),
             "total_trades": p["trade_count"],
             "wins": s["wins"],
@@ -596,19 +636,25 @@ def get_event_log() -> list:
 def get_leaderboard() -> dict:
     _ensure_initialized()
     price = trader_state.get("last_price", 0)
+    global_eq = _get_global_equity(price) if price > 0 else INITIAL_BALANCE
     return {
         "cycle": _cycle_count,
         "primary_strategy": _primary_strategy,
         "leaderboard": _leaderboard,
         "market_state": _last_market_state,
+        "global_portfolio": {
+            "total_equity": round(global_eq, 4),
+            "cash": round(_portfolio["total_cash"], 4),
+            "btc_in_positions": round(sum(s["btc_holdings"] for s in _strategies.values()), 8),
+        },
         "allocations": {n: round(v * 100, 1) for n, v in _allocations.items()},
         "event_log": _event_log[-30:][::-1],
         "strategies": {
             name: {
                 "profile": {k: v for k, v in PROFILES[name].items() if k not in ("color",)},
                 "status": s["status"],
-                "equity": round(s["balance"] + s["btc_holdings"] * price, 4),
-                "balance": round(s["balance"], 4),
+                "equity": round(_get_strategy_virtual_equity(name, max(price, 1)), 4),
+                "allocated_capital": round(INITIAL_BALANCE * _allocations.get(name, 0), 2),
                 "btc_holdings": round(s["btc_holdings"], 8),
                 "total_trades": s["total_trades"],
                 "realized_pnl": round(s["realized_pnl"], 6),

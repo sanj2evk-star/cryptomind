@@ -81,6 +81,7 @@ export default function Leaderboard() {
   const allocations = data?.allocations || {};
   const events = data?.event_log || [];
 
+  const gp = data?.global_portfolio || {};
   const activeCount = board.filter(s => s.status === "ACTIVE" || s.status === "LEADING").length;
   const totalStrategies = board.length;
 
@@ -95,9 +96,15 @@ export default function Leaderboard() {
         </div>
       </div>
 
-      <p style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 10 }}>
-        9 strategies compete in parallel. Micro-traders active in low volatility. Controls: Pause / Resume / Kill per strategy.
-      </p>
+      {/* Global Portfolio Strip */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 10, fontSize: 12 }}>
+        <div><span style={{ color: "var(--text-muted)" }}>Portfolio: </span><b>${(gp.total_equity ?? 100).toFixed(2)}</b></div>
+        <div><span style={{ color: "var(--text-muted)" }}>Cash: </span><b>${(gp.cash ?? 100).toFixed(2)}</b></div>
+        <div><span style={{ color: "var(--text-muted)" }}>BTC in positions: </span><b>{(gp.btc_in_positions ?? 0).toFixed(6)}</b></div>
+        <div style={{ color: "var(--text-muted)", fontSize: 10 }}>
+          Single $100 pool · {totalStrategies} strategies · {activeCount} active
+        </div>
+      </div>
 
       {/* Leaderboard Table */}
       {board.length > 0 ? (
@@ -108,7 +115,8 @@ export default function Leaderboard() {
                 <th>#</th>
                 <th>Strategy</th>
                 <th>Return</th>
-                <th>Equity</th>
+                <th>Capital</th>
+                <th>V.Equity</th>
                 <th>Trades</th>
                 <th>Win%</th>
                 <th>DD</th>
@@ -139,6 +147,7 @@ export default function Leaderboard() {
                     <td style={{ fontWeight: 700, color: ret >= 0 ? "var(--green)" : "var(--red)" }}>
                       {ret >= 0 ? "+" : ""}{ret.toFixed(2)}%
                     </td>
+                    <td style={{ color: "var(--text-muted)" }}>${(s.allocated_capital ?? 0).toFixed(2)}</td>
                     <td>{fmt(s.equity)}</td>
                     <td>{s.total_trades}</td>
                     <td>{s.win_rate?.toFixed(0) ?? 0}%</td>
