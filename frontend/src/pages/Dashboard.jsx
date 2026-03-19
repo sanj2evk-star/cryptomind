@@ -357,26 +357,27 @@ export default function Dashboard() {
       </div>
 
       {/* ── Insight + Equity (left) | Auto-Trades (right) ── */}
-      <div className="bottom-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 6, marginBottom: 6, alignItems: "start" }}>
+      <div className="bottom-grid" style={{ display: "grid", gridTemplateColumns: "5fr 6fr", gap: 6, marginBottom: 6, alignItems: "start" }}>
 
         {/* Left: Insight + Equity stacked */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {/* Insight */}
           {insightText && (
             <div className="insight-card" style={{
-              padding: isTouch ? "12px 16px" : "8px 12px", borderRadius: 5,
+              padding: isTouch ? "16px 18px" : "14px 16px", borderRadius: 6,
               background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "3px solid #8b5cf6",
+              minHeight: isTouch ? 120 : 100,
             }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#a78bfa", textTransform: "uppercase" }}>Insight</span>
-                <div style={{ display: "flex", gap: 8, fontSize: 9, color: "var(--text-muted)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 0.5 }}>Session Insight</span>
+                <div style={{ display: "flex", gap: 10, fontSize: 11, color: "var(--text-muted)" }}>
                   <span>{insightStats.cycles ?? 0}c</span>
                   <span style={{ color: "var(--green)" }}>{insightStats.trades_taken ?? 0} traded</span>
                   <span style={{ color: "#f59e0b" }}>{insightStats.trades_avoided ?? 0} skip</span>
                   <span>{insightStats.holds ?? 0} hold</span>
                 </div>
               </div>
-              <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5 }}>{insightText}</div>
+              <div style={{ fontSize: 14, color: "var(--text)", lineHeight: 1.6 }}>{insightText}</div>
             </div>
           )}
           {/* Equity */}
