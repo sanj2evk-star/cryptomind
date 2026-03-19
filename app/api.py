@@ -371,6 +371,20 @@ def get_live_state():
     return auto_trader.get_state()
 
 
+@app.get("/price-history")
+def get_price_history():
+    """Return raw price history from auto-trader memory. No auth, ultra-lightweight."""
+    import time as _time
+    prices = auto_trader._state.get("price_history", [])
+    now = int(_time.time())
+    # Build simple time-value pairs (30s interval between readings)
+    points = []
+    for i, p in enumerate(prices):
+        t = now - (len(prices) - i) * 30
+        points.append({"time": t, "value": round(p, 2)})
+    return {"count": len(points), "prices": points}
+
+
 @app.get("/journal")
 def get_public_journal(limit: int = Query(default=20, ge=1, le=100)):
     """Public journal endpoint — latest N entries, newest first. No auth required."""

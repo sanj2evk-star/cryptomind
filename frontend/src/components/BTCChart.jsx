@@ -205,28 +205,54 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
     }
   }, [destroyChart]);
 
-  // ── Fetch candle data ──
+  // ── Fetch chart data ──
+  // Safari: try /price-history first (local, always works), then /candles
+  // Desktop: use /candles directly (Binance data)
   const fetchCandles = useCallback(async (tf, chartMode) => {
     try {
       setLoading(true);
       setError(null);
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12000);
+      let data = null;
 
-      const resp = await fetch(`${API}/candles?interval=${tf}`, { signal: controller.signal });
-      clearTimeout(timer);
+      if (USE_SVG_FALLBACK) {
+        // Safari path: try lightweight /price-history first
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 8000);
+          const resp = await fetch(`${API}/price-history`, { signal: controller.signal });
+          clearTimeout(timer);
+          if (resp.ok) {
+            const ph = await resp.json();
+            if (ph.prices?.length >= 3) {
+              // Convert price-history to candle-like format for SafariChart
+              data = {
+                candles: ph.prices.map(p => ({ time: p.time, open: p.value, high: p.value, low: p.value, close: p.value })),
+                ema9: [], ema21: [], source: "live", count: ph.prices.length,
+              };
+              log(`Safari: got ${ph.prices.length} points from /price-history`);
+            }
+          }
+        } catch (_) { log("Safari: /price-history failed, trying /candles"); }
+      }
 
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
+      // Fallback or desktop: use /candles
+      if (!data) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12000);
+        const resp = await fetch(`${API}/candles?interval=${tf}`, { signal: controller.signal });
+        clearTimeout(timer);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        data = await resp.json();
+      }
 
-      if (!data.candles?.length) {
-        setError("No data available");
+      if (!data?.candles?.length) {
+        setError("No data");
         setLoading(false);
         return;
       }
 
-      log(`Got ${data.candles.length} candles from ${data.source}, safari=${USE_SVG_FALLBACK}`);
+      log(`Got ${data.candles.length} points from ${data.source || "candles"}, safari=${USE_SVG_FALLBACK}`);
       setSource(data.source || "");
       dataRef.current = data;
 
@@ -236,13 +262,13 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
       setPriceChange((last.close - first.open) / first.open * 100);
       setLastCandle(last);
 
-      // Safari: skip canvas chart, just set data and stop loading
+      // Safari: just set data, no canvas needed
       if (USE_SVG_FALLBACK) {
         setLoading(false);
         return;
       }
 
-      // Chrome/Electron: use requestAnimationFrame for canvas chart
+      // Desktop: use requestAnimationFrame for canvas chart
       requestAnimationFrame(() => {
         buildChart(data, tf, chartMode);
         setLoading(false);

@@ -445,10 +445,11 @@ tr:last-child td {
     margin-bottom: 4px !important;
   }
 
-  /* Bottom row */
+  /* Bottom row — fill remaining space */
   .bottom-grid {
     gap: 4px !important;
     margin-bottom: 0 !important;
+    flex: 1;
   }
 
   /* Insight */
@@ -465,8 +466,14 @@ tr:last-child td {
   /* Collapsed sidebar for iPad Pro landscape too */
   .sidebar {
     width: 52px;
-    padding: 14px 6px;
+    padding: 10px 6px;
     align-items: center;
+    overflow-y: auto;
+  }
+
+  /* Keep logout visible — don't push off screen */
+  .sidebar a[style*="margin-top"] {
+    margin-top: 8px !important;
   }
 
   .sidebar.sidebar--open {
