@@ -4,7 +4,7 @@
  * 100% reliable on all WebKit versions.
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, memo } from "react";
 
 function fmtPrice(n) {
   return `$${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -15,7 +15,7 @@ function fmtTime(ts) {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export default function SafariChart({ candles, ema9, ema21, height = 200 }) {
+function SafariChartInner({ candles, ema9, ema21, height = 200 }) {
   const svgRef = useRef(null);
   const [tooltip, setTooltip] = useState(null);
 
@@ -192,3 +192,16 @@ export default function SafariChart({ candles, ema9, ema21, height = 200 }) {
     </div>
   );
 }
+
+// Only re-render if candle count or last close price changes
+const SafariChart = memo(SafariChartInner, (prev, next) => {
+  const pLen = prev.candles?.length || 0;
+  const nLen = next.candles?.length || 0;
+  if (pLen !== nLen) return false; // different count → re-render
+  if (pLen === 0) return true; // both empty → skip
+  const pLast = prev.candles[pLen - 1]?.close;
+  const nLast = next.candles[nLen - 1]?.close;
+  return pLast === nLast; // same last price → skip re-render
+});
+
+export default SafariChart;

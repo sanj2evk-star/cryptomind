@@ -244,16 +244,21 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
         return;
       }
 
-      setSource(data.source || "");
-      dataRef.current = data;
-
+      const newSource = data.source || "";
       const first = data.candles[0];
       const last = data.candles[data.candles.length - 1];
-      setPriceChange((last.close - first.open) / first.open * 100);
-      setLastCandle(last);
+      const newPctChange = (last.close - first.open) / first.open * 100;
+      const isFirstLoad = !dataRef.current;
+
+      dataRef.current = data;
+
+      // Only update state if values actually changed (prevents unnecessary re-renders)
+      if (newSource !== source) setSource(newSource);
+      if (Math.abs(newPctChange - priceChange) > 0.01) setPriceChange(newPctChange);
+      if (!lastCandle || last.close !== lastCandle.close) setLastCandle(last);
 
       if (USE_SVG_FALLBACK) {
-        setLoading(false);
+        if (isFirstLoad || loading) setLoading(false);
         return;
       }
 
