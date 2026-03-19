@@ -197,12 +197,12 @@ export default function Dashboard() {
         />
       </Suspense>
 
-      {/* ── AI Decision + Holdings + Indicators — 3 column grid ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+      {/* ── AI Decision + Holdings + Indicators — balanced 3-col ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "5fr 3fr 3fr", gap: 8, marginBottom: 8 }}>
 
-        {/* AI Decision (wider) */}
-        <div className="card" style={{ padding: "8px 10px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        {/* AI Decision — signal box */}
+        <div className="card" style={{ padding: "10px 12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>AI Decision</span>
             {isEarly && <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 2, background: "#8b5cf633", color: "#a78bfa" }}>EARLY</span>}
           </div>
@@ -210,85 +210,88 @@ export default function Dashboard() {
             <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Waiting...</div>
           ) : (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                <span className={`tag ${(decision.action || "hold").toLowerCase()}`} style={{ fontSize: 12, padding: "2px 8px" }}>
+              {/* Big signal line */}
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                <span className={`tag ${(decision.action || "hold").toLowerCase()}`} style={{ fontSize: 16, padding: "3px 12px", fontWeight: 700 }}>
                   {decision.action || "HOLD"}
                 </span>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>{decision.score ?? "—"}</span>
-                <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
-                  / 100 · {(Number(decision.confidence ?? 0) * 100).toFixed(0)}% conf
+                <span style={{ fontSize: 20, fontWeight: 800 }}>{decision.score ?? "—"}</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>/100</span>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {(Number(decision.confidence ?? 0) * 100).toFixed(0)}% conf
                 </span>
                 {decision.position_size > 0 && (
-                  <span style={{ fontSize: 10, color: "#3b82f6", fontWeight: 600 }}>
+                  <span style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>
                     {(decision.position_size * 100).toFixed(0)}% size
                   </span>
                 )}
-                {momBoost > 0 && <span style={{ fontSize: 10, color: "#22c55e" }}>+{momBoost.toFixed(0)} boost</span>}
               </div>
 
               {/* Threshold bar */}
-              <div style={{ marginBottom: 4 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: "var(--text-muted)", marginBottom: 1 }}>
-                  <span>S&lt;{sellThresh}</span><span>H</span><span>B&gt;{buyThresh}</span>
+              <div style={{ marginBottom: 5 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--text-muted)", marginBottom: 1 }}>
+                  <span>SELL &lt;{sellThresh}</span><span>HOLD</span><span>BUY &gt;{buyThresh}</span>
                 </div>
-                <div style={{ position: "relative", height: 4, background: "var(--border)", borderRadius: 2 }}>
-                  <div style={{ position: "absolute", left: 0, top: 0, width: `${sellThresh}%`, height: "100%", background: "#ef444433", borderRadius: "2px 0 0 2px" }} />
-                  <div style={{ position: "absolute", right: 0, top: 0, width: `${100 - buyThresh}%`, height: "100%", background: "#22c55e33", borderRadius: "0 2px 2px 0" }} />
+                <div style={{ position: "relative", height: 5, background: "var(--border)", borderRadius: 3 }}>
+                  <div style={{ position: "absolute", left: 0, top: 0, width: `${sellThresh}%`, height: "100%", background: "#ef444433", borderRadius: "3px 0 0 3px" }} />
+                  <div style={{ position: "absolute", right: 0, top: 0, width: `${100 - buyThresh}%`, height: "100%", background: "#22c55e33", borderRadius: "0 3px 3px 0" }} />
                   <div style={{
-                    position: "absolute", top: -2, left: `${Math.max(0, Math.min(100, decision.score ?? 50))}%`,
-                    transform: "translateX(-50%)", width: 8, height: 8, borderRadius: "50%",
+                    position: "absolute", top: -3, left: `${Math.max(0, Math.min(100, decision.score ?? 50))}%`,
+                    transform: "translateX(-50%)", width: 11, height: 11, borderRadius: "50%",
                     background: decision.action === "BUY" ? "var(--green)" : decision.action === "SELL" ? "var(--red)" : "var(--text-muted)",
-                    border: "1.5px solid var(--surface)",
+                    border: "2px solid var(--surface)",
                   }} />
                 </div>
               </div>
 
-              <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4, marginBottom: 3 }}>
+              {/* Reasoning */}
+              <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4, marginBottom: 4 }}>
                 {decision.reasoning}
               </div>
 
-              {/* Why bullets — compact */}
-              {whyReasons.length > 0 && (
-                <div style={{ padding: "4px 6px", background: "var(--bg)", borderRadius: 3, borderLeft: "2px solid #8b5cf6" }}>
-                  {whyReasons.slice(0, 4).map((r, i) => (
-                    <div key={i} style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4 }}>• {r}</div>
-                  ))}
-                </div>
-              )}
-
-              {/* Signal bars */}
-              {decision.signals && typeof decision.signals === "object" && !Array.isArray(decision.signals) && (
-                <div style={{ display: "flex", gap: 4, marginTop: 5 }}>
-                  <SignalBar label="EMA" value={decision.signals.ema} weight="35%" />
-                  <SignalBar label="RSI" value={decision.signals.rsi} weight="25%" />
-                  <SignalBar label="Trend" value={decision.signals.trend} weight="25%" />
-                  <SignalBar label="Accel" value={decision.signals.momentum} weight="15%" />
-                </div>
-              )}
+              {/* Why + Signals side by side */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {whyReasons.length > 0 && (
+                  <div style={{ padding: "4px 6px", background: "var(--bg)", borderRadius: 3, borderLeft: "2px solid #8b5cf6" }}>
+                    <div style={{ fontSize: 9, color: "#a78bfa", fontWeight: 700, marginBottom: 2 }}>WHY</div>
+                    {whyReasons.slice(0, 3).map((r, i) => (
+                      <div key={i} style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.3 }}>• {r}</div>
+                    ))}
+                  </div>
+                )}
+                {decision.signals && typeof decision.signals === "object" && !Array.isArray(decision.signals) && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
+                    <SignalBar label="EMA" value={decision.signals.ema} weight="35%" />
+                    <SignalBar label="RSI" value={decision.signals.rsi} weight="25%" />
+                    <SignalBar label="Trend" value={decision.signals.trend} weight="25%" />
+                    <SignalBar label="Accel" value={decision.signals.momentum} weight="15%" />
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>
 
-        {/* Holdings (compact) */}
-        <div className="card" style={{ padding: "8px 10px" }}>
-          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>Holdings</div>
+        {/* Holdings */}
+        <div className="card" style={{ padding: "10px 12px" }}>
+          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>Holdings</div>
           <InlineMetric label="Cash" value={fmt(cash)} />
           <InlineMetric label="BTC" value={btc.toFixed(6)} />
-          <InlineMetric label="Entry" value={avgEntry > 0 ? fmtPrice(avgEntry) : "—"} />
-          <InlineMetric label="Unreal." value={fmt(unrealizedPnl)} color={unrealizedPnl >= 0 ? "var(--green)" : "var(--red)"} />
-          <div style={{ borderTop: "1px solid var(--border)", marginTop: 4, paddingTop: 4 }}>
+          <InlineMetric label="Avg Entry" value={avgEntry > 0 ? fmtPrice(avgEntry) : "—"} />
+          <InlineMetric label="Unrealized" value={fmt(unrealizedPnl)} color={unrealizedPnl >= 0 ? "var(--green)" : "var(--red)"} />
+          <div style={{ borderTop: "1px solid var(--border)", marginTop: 5, paddingTop: 5 }}>
             <InlineMetric label="Cooldown" value={cooldown > 0 ? `${cooldown}s` : "Ready"} color={cooldown > 0 ? "var(--red)" : "var(--green)"} />
           </div>
         </div>
 
-        {/* Technical Indicators (compact) */}
-        <div className="card" style={{ padding: "8px 10px" }}>
-          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>Indicators</div>
+        {/* Indicators */}
+        <div className="card" style={{ padding: "10px 12px" }}>
+          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>Indicators</div>
           <InlineMetric label="EMA 9" value={indicators.ema_short ? fmtPrice(indicators.ema_short) : "—"} />
           <InlineMetric label="EMA 21" value={indicators.ema_long ? fmtPrice(indicators.ema_long) : "—"} />
-          <InlineMetric label="RSI" value={indicators.rsi?.toFixed(1) || "—"} color={indicators.rsi > 70 ? "var(--red)" : indicators.rsi < 30 ? "var(--green)" : undefined} />
+          <InlineMetric label="RSI(14)" value={indicators.rsi?.toFixed(1) || "—"} color={indicators.rsi > 70 ? "var(--red)" : indicators.rsi < 30 ? "var(--green)" : undefined} />
           <InlineMetric label="Trend" value={indicators.trend || "—"} />
-          <InlineMetric label="Vol" value={`${((indicators.volatility ?? 0) * 100).toFixed(3)}%`} />
+          <InlineMetric label="Volatility" value={`${((indicators.volatility ?? 0) * 100).toFixed(3)}%`} />
           <InlineMetric label="Accel" value={indicators.acceleration?.toFixed(1) ?? "0.0"} color={indicators.acceleration > 10 ? "var(--green)" : indicators.acceleration < -10 ? "var(--red)" : undefined} />
         </div>
       </div>
