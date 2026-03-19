@@ -30,9 +30,13 @@ function SafariChartInner({ candles, ema9, ema21, height = 200 }) {
   const padding = { top: 10, right: 60, bottom: 24, left: 10 };
   const closes = candles.map(c => c.close);
   const times = candles.map(c => c.time);
-  const minP = Math.min(...closes);
-  const maxP = Math.max(...closes);
-  const priceRange = maxP - minP || 1;
+  const rawMin = Math.min(...closes);
+  const rawMax = Math.max(...closes);
+  const rawRange = rawMax - rawMin || 1;
+  // Add 15% padding so current price is never at the edge
+  const minP = rawMin - rawRange * 0.15;
+  const maxP = rawMax + rawRange * 0.15;
+  const priceRange = maxP - minP;
 
   const first = closes[0];
   const last = closes[closes.length - 1];
@@ -193,15 +197,19 @@ function SafariChartInner({ candles, ema9, ema21, height = 200 }) {
   );
 }
 
-// Only re-render if candle count or last close price changes
+// Re-render if data actually changed (count, first time, last price, or height)
 const SafariChart = memo(SafariChartInner, (prev, next) => {
+  if (prev.height !== next.height) return false;
   const pLen = prev.candles?.length || 0;
   const nLen = next.candles?.length || 0;
-  if (pLen !== nLen) return false; // different count → re-render
-  if (pLen === 0) return true; // both empty → skip
+  if (pLen !== nLen) return false;
+  if (pLen === 0) return true;
+  // Check first candle time (detects timeframe change)
+  if (prev.candles[0]?.time !== next.candles[0]?.time) return false;
+  // Check last price
   const pLast = prev.candles[pLen - 1]?.close;
   const nLast = next.candles[nLen - 1]?.close;
-  return pLast === nLast; // same last price → skip re-render
+  return pLast === nLast;
 });
 
 export default SafariChart;

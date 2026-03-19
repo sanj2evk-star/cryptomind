@@ -106,7 +106,7 @@ export default function Login({ onLogin }) {
         </button>
 
         <p style={{ marginTop: 16, fontSize: 11, color: "var(--text-muted)", textAlign: "center" }}>
-          Default: admin / changeme
+          CryptoMind Trading Terminal
         </p>
       </form>
     </div>

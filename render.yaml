@@ -8,9 +8,9 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: API_USERNAME
-        value: admin
+        value: sank2evk
       - key: API_PASSWORD
-        value: changeme
+        value: sysfranco
       - key: JWT_SECRET
         generateValue: true
       - key: PYTHON_VERSION

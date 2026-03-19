@@ -145,14 +145,16 @@ export default function App() {
             <span className="sidebar__label">{item.label}</span>
           </NavLink>
         ))}
-        <a
-          href="#"
-          onClick={(e) => { e.preventDefault(); handleLogout(); }}
-          style={{ marginTop: "auto", color: "var(--red)" }}
-        >
-          <span className="sidebar__icon">🚪</span>
-          <span className="sidebar__label">Logout</span>
-        </a>
+        <div style={{ marginTop: 30, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+          <a
+            href="#"
+            onClick={(e) => { e.preventDefault(); handleLogout(); }}
+            style={{ color: "var(--red)", opacity: 0.6, fontSize: 12 }}
+          >
+            <span className="sidebar__icon">🚪</span>
+            <span className="sidebar__label">Logout</span>
+          </a>
+        </div>
       </nav>
       <main className="content">
         <Routes>

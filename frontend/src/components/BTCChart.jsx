@@ -17,7 +17,8 @@ function isSafariFallback() {
   const isWebKit = /AppleWebKit/.test(ua) && !/Chrome/.test(ua) && !/CriOS/.test(ua) && !/Edg/.test(ua);
   return isTouch && isWebKit;
 }
-const USE_SVG_FALLBACK = isSafariFallback();
+// Force SVG mode with ?safari=1 in URL (for testing iPad chart on desktop)
+const USE_SVG_FALLBACK = isSafariFallback() || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("safari") === "1");
 
 const TIMEFRAMES = [
   { label: "1m", value: "1m" },
@@ -342,17 +343,8 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
           )}
           {source && <span style={{ fontSize: 8, color: "var(--text-muted)", opacity: 0.4 }}>{source}</span>}
 
-          {/* Chart ON/OFF toggle */}
-          <button onClick={toggleChart} title={chartVisible ? "Hide chart" : "Show chart"} style={{
-            padding: "3px 8px", border: "none", borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: "pointer",
-            background: chartVisible ? "var(--surface)" : "var(--border)",
-            color: chartVisible ? "var(--text)" : "var(--text-muted)",
-          }}>
-            {chartVisible ? "📈 ON" : "📈 OFF"}
-          </button>
-
-          {/* Expand/Collapse — touch devices only */}
-          {chartVisible && ("ontouchstart" in window || navigator.maxTouchPoints > 0) && (
+          {/* Expand/Collapse — touch devices or SVG mode */}
+          {chartVisible && (USE_SVG_FALLBACK || "ontouchstart" in window || navigator.maxTouchPoints > 0) && (
             <button onClick={() => { setExpanded(e => !e); currentModeRef.current = null; }} title={expanded ? "Shrink chart" : "Expand chart"} style={{
               padding: "3px 8px", border: "none", borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: "pointer",
               background: expanded ? "var(--surface)" : "var(--bg)",
@@ -387,6 +379,16 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
               ))}
             </div>
           )}
+
+          {/* Chart ON/OFF — far right */}
+          <button onClick={toggleChart} title={chartVisible ? "Hide chart" : "Show chart"} style={{
+            padding: "3px 8px", border: "none", borderRadius: 3, fontSize: 10, fontWeight: 600, cursor: "pointer",
+            background: chartVisible ? "var(--green)" : "var(--border)",
+            color: chartVisible ? "#fff" : "var(--text-muted)",
+            marginLeft: 2,
+          }}>
+            {chartVisible ? "ON" : "OFF"}
+          </button>
         </div>
       </div>
 
