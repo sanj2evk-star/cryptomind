@@ -232,11 +232,16 @@ function waitForService(url, label, timeoutMs) {
 // ---------------------------------------------------------------------------
 
 function createWindow() {
+  // Get screen dimensions for near-maximized launch
+  const { screen } = require("electron");
+  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
+    width: Math.min(sw, Math.max(1400, Math.round(sw * 0.92))),
+    height: Math.min(sh, Math.max(900, Math.round(sh * 0.92))),
     minWidth: 900,
     minHeight: 600,
+    center: true,
     title: APP_NAME,
     backgroundColor: "#0f1117",
     webPreferences: { nodeIntegration: false, contextIsolation: true },
