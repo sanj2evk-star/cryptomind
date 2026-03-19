@@ -369,29 +369,29 @@ export default function Dashboard() {
           <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>Recent Auto-Trades</div>
           {trades.length > 0 ? (
             <div className="table-wrap">
-              <table>
+              <table style={{ fontSize: 11 }}>
                 <thead>
                   <tr>
-                    <th>Time</th>
-                    <th>Action</th>
-                    <th>Price</th>
-                    <th>P&L</th>
-                    <th>Score</th>
-                    <th>Conf</th>
+                    <th style={{ padding: "4px 8px" }}>Time</th>
+                    <th style={{ padding: "4px 8px" }}>Action</th>
+                    <th style={{ padding: "4px 8px" }}>Price</th>
+                    <th style={{ padding: "4px 8px" }}>P&L</th>
+                    <th style={{ padding: "4px 8px" }}>Score</th>
+                    <th style={{ padding: "4px 8px" }}>Conf</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {trades.slice(0, 10).map((t, i) => {
+                  {trades.slice(0, 8).map((t, i) => {
                     const pnl = parseFloat(t.pnl) || 0;
                     const action = (t.action || "HOLD").toUpperCase();
                     return (
                       <tr key={i}>
-                        <td style={{ fontSize: 10 }}>{fmtLocalTimeShort(t.timestamp)}</td>
-                        <td><span className={`tag ${action.toLowerCase()}`}>{action}</span></td>
-                        <td>{fmtPrice(t.price)}</td>
-                        <td style={{ color: pnl >= 0 ? "var(--green)" : "var(--red)" }}>{fmt(pnl)}</td>
-                        <td>{t.score ?? "—"}</td>
-                        <td>{((parseFloat(t.confidence) || 0) * 100).toFixed(0)}%</td>
+                        <td style={{ padding: "3px 8px", fontSize: 10 }}>{fmtLocalTimeShort(t.timestamp)}</td>
+                        <td style={{ padding: "3px 8px" }}><span className={`tag ${action.toLowerCase()}`}>{action}</span></td>
+                        <td style={{ padding: "3px 8px" }}>{fmtPrice(t.price)}</td>
+                        <td style={{ padding: "3px 8px", color: pnl >= 0 ? "var(--green)" : "var(--red)" }}>{fmt(pnl)}</td>
+                        <td style={{ padding: "3px 8px" }}>{t.score ?? "—"}</td>
+                        <td style={{ padding: "3px 8px" }}>{((parseFloat(t.confidence) || 0) * 100).toFixed(0)}%</td>
                       </tr>
                     );
                   })}
