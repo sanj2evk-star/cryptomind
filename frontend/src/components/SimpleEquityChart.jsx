@@ -25,9 +25,9 @@ export default function SimpleEquityChart({ equity }) {
   const max = Math.max(...points.map((p) => p.value));
   const pad = (max - min) * 0.1 || 0.01;
 
-  // Taller equity chart on iPad to fill space
+  // Equity chart height — generous on iPad to fill space
   const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
-  const eqHeight = isTouch ? 150 : 180;
+  const eqHeight = isTouch ? 200 : 180;
 
   return (
     <div className="chart-wrap">

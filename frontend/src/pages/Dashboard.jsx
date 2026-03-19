@@ -131,7 +131,7 @@ export default function Dashboard() {
 
   const trades = autoTrades?.trades || [];
   const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
-  const maxTradeRows = isTouch ? 6 : 15;
+  const maxTradeRows = isTouch ? 12 : 15;
 
   return (
     <>
