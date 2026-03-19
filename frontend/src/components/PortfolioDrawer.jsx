@@ -1,10 +1,13 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useApi } from "../hooks/useApi";
 
 /**
  * Portfolio Manager — slide-in drawer showing system brain state.
  * Props: open, onClose, leaderboard data, adaptive data, live data
  */
 export default function PortfolioDrawer({ open, onClose, leaderboard, adaptive, live }) {
+  const { data: prediction } = useApi(open ? "/prediction" : null, 10000);
+  const { data: revivalWatch } = useApi(open ? "/revival-watch" : null, 10000);
   // Close on Escape
   useEffect(() => {
     if (!open) return;
@@ -77,6 +80,52 @@ export default function PortfolioDrawer({ open, onClose, leaderboard, adaptive, 
           } />
           <Row label="Active / Total" value={`${activeCount} / ${board.length}`} />
           <Row label="Next Learning" value={`${adaptiveData.next_learn_in || "—"} cycles`} />
+        </Section>
+
+        {/* Next Move Prediction */}
+        {prediction && (
+          <Section title="Next Move Prediction">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{
+                padding: "2px 10px", borderRadius: 4, fontSize: 12, fontWeight: 700,
+                background: prediction.action === "BUY" ? "#22c55e20" : prediction.action === "SELL" ? "#ef444420" : "#6b728020",
+                color: prediction.action === "BUY" ? "#22c55e" : prediction.action === "SELL" ? "#ef4444" : "#9ca3af",
+              }}>{prediction.action}</span>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>{prediction.probability}%</span>
+            </div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic" }}>
+              {prediction.reason}
+            </div>
+            {prediction.breakdown && (
+              <div style={{ display: "flex", gap: 10, marginTop: 4, fontSize: 10 }}>
+                <span style={{ color: "#22c55e" }}>Buy {prediction.breakdown.buy}%</span>
+                <span style={{ color: "#ef4444" }}>Sell {prediction.breakdown.sell}%</span>
+                <span style={{ color: "#9ca3af" }}>Hold {prediction.breakdown.hold}%</span>
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* Revival Watch */}
+        <Section title="Revival Watch">
+          {(revivalWatch?.watch || []).length > 0 ? revivalWatch.watch.map(w => (
+            <div key={w.strategy} style={{ marginBottom: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 3, height: 14, borderRadius: 2, background: w.color || "#666" }} />
+                <span style={{ fontWeight: 600, fontSize: 11 }}>{w.label}</span>
+                <span style={{ fontSize: 9, color: "var(--text-muted)" }}>({w.cycles_inactive} cycles inactive)</span>
+              </div>
+              {w.triggers?.map((t, i) => (
+                <div key={i} style={{ fontSize: 10, color: "#f59e0b", marginLeft: 9, fontStyle: "italic" }}>
+                  ⏳ {t}
+                </div>
+              ))}
+            </div>
+          )) : (
+            <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+              No killed strategies under revival watch
+            </div>
+          )}
         </Section>
 
         {/* Section 2: Allocation Insight */}
@@ -220,14 +269,45 @@ function Row({ label, value }) {
   );
 }
 
+/**
+ * Compute trust score (0–100) reflecting real strategy quality.
+ *
+ * Components (weighted to create visible differentiation):
+ * - Return performance:      30% weight (total_return scaled aggressively)
+ * - Win rate quality:        25% weight (above 50% is good, below is bad)
+ * - Reliability (low DD):    20% weight (low drawdown = trustworthy)
+ * - Consistency (trades > 0): 15% weight (has it actually traded?)
+ * - Allocation (market vote): 10% weight (system allocates more to trusted)
+ *
+ * The old logic clustered everything near 50 because the scaling was too mild.
+ * New logic uses exponential distance from neutral to amplify real differences.
+ */
 function computeTrust(s) {
   if (s.status === "INACTIVE") return 0;
   if (s.status === "PAUSED") return 10;
-  let trust = 50;
-  trust += Math.min((s.total_return || 0) * 5, 20);
-  trust += Math.min(((s.win_rate || 50) - 50) * 0.5, 15);
-  trust -= Math.min((s.max_drawdown || 0) * 2, 20);
-  trust += Math.min((s.allocation_pct || 0) * 0.3, 10);
+
+  // 1. Return score: -10% to +10% maps to 0–100 (center at 50)
+  const ret = s.total_return || 0;
+  const retScore = Math.max(0, Math.min(100, 50 + ret * 10)); // ±5% = ±50 points
+
+  // 2. Win rate score: 0-100% maps directly, but amplified around 50%
+  const wr = s.win_rate ?? 50;
+  const wrScore = Math.max(0, Math.min(100, (wr - 30) * (100 / 40))); // 30% = 0, 70% = 100
+
+  // 3. Reliability: low drawdown = high score
+  const dd = s.max_drawdown || 0;
+  const reliabilityScore = Math.max(0, 100 - dd * 10); // 10% DD = 0
+
+  // 4. Consistency: has it traded? more trades = more data = more trust
+  const trades = s.total_trades || 0;
+  const consistScore = Math.min(100, trades * 15); // 7+ trades = max
+
+  // 5. Allocation: system's own vote of confidence
+  const allocScore = Math.min(100, (s.allocation_pct || 0) * 5); // 20% alloc = 100
+
+  // Weighted blend
+  const trust = retScore * 0.30 + wrScore * 0.25 + reliabilityScore * 0.20 + consistScore * 0.15 + allocScore * 0.10;
+
   return Math.max(0, Math.min(100, Math.round(trust)));
 }
 

@@ -807,6 +807,111 @@ def _compute_leaderboard(price: float) -> list[dict]:
     return board
 
 
+def get_next_move_prediction() -> dict:
+    """Predict what the system is most likely to do next based on current state.
+    Aggregates signals across active strategies weighted by allocation."""
+    _ensure_initialized()
+
+    buy_weight = 0
+    sell_weight = 0
+    hold_weight = 0
+    reasons = []
+    mkt = _last_market_state.get("state", "SLEEPING")
+
+    for name, s in _strategies.items():
+        if s["status"] not in ("ACTIVE", "LEADING"):
+            continue
+        alloc = _allocations.get(name, 0)
+        action = s["last_action"]
+        entry_met = s.get("entry_condition_met", False)
+
+        if action == "BUY" or (entry_met and s["btc_holdings"] < 0.0001):
+            buy_weight += alloc
+        elif action == "SELL" or (entry_met and s["btc_holdings"] > 0.0001):
+            sell_weight += alloc
+        else:
+            hold_weight += alloc
+
+    total = buy_weight + sell_weight + hold_weight
+    if total <= 0:
+        return {"action": "HOLD", "probability": 100, "reason": "No active strategies"}
+
+    buy_pct = round(buy_weight / total * 100)
+    sell_pct = round(sell_weight / total * 100)
+    hold_pct = round(hold_weight / total * 100)
+
+    if buy_pct >= sell_pct and buy_pct >= hold_pct:
+        action, prob = "BUY", buy_pct
+    elif sell_pct >= buy_pct and sell_pct >= hold_pct:
+        action, prob = "SELL", sell_pct
+    else:
+        action, prob = "HOLD", hold_pct
+
+    # Build reason from market state
+    if mkt == "SLEEPING":
+        reasons.append("low volatility, no confirmed edge")
+    elif mkt == "WAKING_UP":
+        reasons.append("volatility rising, watching for confirmation")
+    elif mkt == "ACTIVE":
+        reasons.append("strong signals, directional move underway")
+    elif mkt == "BREAKOUT":
+        reasons.append("volatility spike, breakout in progress")
+
+    if action == "HOLD" and hold_pct > 70:
+        reasons.append("strategies aligned on caution")
+    elif action == "BUY" and buy_pct > 60:
+        reasons.append("multiple strategies leaning bullish")
+    elif action == "SELL" and sell_pct > 60:
+        reasons.append("multiple strategies leaning bearish")
+
+    return {
+        "action": action,
+        "probability": prob,
+        "reason": " — ".join(reasons) if reasons else "mixed signals",
+        "breakdown": {"buy": buy_pct, "sell": sell_pct, "hold": hold_pct},
+    }
+
+
+def get_revival_watch() -> list:
+    """Return killed strategies and what condition they're waiting for to revive."""
+    _ensure_initialized()
+    watch = []
+    mkt = _last_market_state.get("state", "SLEEPING")
+
+    for name, s in _strategies.items():
+        if s["status"] != "INACTIVE":
+            continue
+
+        cycles_since = _cycle_count - s.get("killed_at_cycle", 0)
+        profile = PROFILES.get(name, {})
+        regimes = profile.get("regimes", [])
+        cooldown_left = max(0, REVIVE_COOLDOWN - cycles_since)
+
+        # Determine what this strategy is waiting for
+        triggers = []
+        if cooldown_left > 0:
+            triggers.append(f"cooldown: {cooldown_left} cycles remaining")
+        if regimes and mkt not in regimes:
+            needed = [r for r in regimes if r != mkt]
+            triggers.append(f"waiting for {' or '.join(needed[:2])} regime")
+        if name in ("BREAKOUT_SNIPER", "AGGRESSIVE"):
+            triggers.append("waiting for volatility expansion")
+        elif name in ("MEAN_REVERTER", "MONK", "DEFENSIVE"):
+            triggers.append("waiting for calm/sideways market")
+        elif name in ("SCALPER", "INTUITIVE"):
+            triggers.append("waiting for signal clarity")
+
+        watch.append({
+            "strategy": name,
+            "label": profile.get("label", name),
+            "color": profile.get("color", "#666"),
+            "cycles_inactive": cycles_since,
+            "triggers": triggers[:2],  # max 2 reasons
+        })
+
+    return watch
+
+
 def get_event_log() -> list:
     """Return full event log (newest first)."""
     _ensure_initialized()

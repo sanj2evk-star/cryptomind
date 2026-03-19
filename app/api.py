@@ -405,6 +405,26 @@ def get_public_journal(limit: int = Query(default=20, ge=1, le=100)):
     return {"count": len(entries), "entries": entries}
 
 
+@app.get("/prediction")
+def get_prediction():
+    """Next move prediction."""
+    try:
+        import multi_strategy
+        return multi_strategy.get_next_move_prediction()
+    except Exception as e:
+        return {"action": "HOLD", "probability": 0, "reason": str(e)}
+
+
+@app.get("/revival-watch")
+def get_revival_watch():
+    """Killed strategies under revival watch."""
+    try:
+        import multi_strategy
+        return {"watch": multi_strategy.get_revival_watch()}
+    except Exception as e:
+        return {"watch": [], "error": str(e)}
+
+
 @app.get("/adaptive")
 def get_adaptive_status():
     """Adaptive learning system status."""
