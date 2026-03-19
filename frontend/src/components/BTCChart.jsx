@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { createChart, ColorType, CrosshairMode } from "lightweight-charts";
+import { createChart, ColorType, CrosshairMode, CandlestickSeries, LineSeries } from "lightweight-charts";
 
 const API = import.meta.env.VITE_API_URL || window.location.origin;
 
@@ -85,8 +85,8 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
 
       chartRef.current = chart;
 
-      // Candlestick series
-      const candleSeries = chart.addCandlestickSeries({
+      // Candlestick series (v5 API: chart.addSeries(CandlestickSeries, options))
+      const candleSeries = chart.addSeries(CandlestickSeries, {
         upColor: "#22c55e",
         downColor: "#ef4444",
         borderUpColor: "#22c55e",
@@ -97,9 +97,9 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
       candleSeries.setData(data.candles);
       candleSeriesRef.current = candleSeries;
 
-      // EMA 9 line
+      // EMA 9 line (v5 API)
       if (data.ema9 && data.ema9.length > 0) {
-        const ema9 = chart.addLineSeries({
+        const ema9 = chart.addSeries(LineSeries, {
           color: "#3b82f6",
           lineWidth: 1,
           priceLineVisible: false,
@@ -110,9 +110,9 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
         ema9Ref.current = ema9;
       }
 
-      // EMA 21 line
+      // EMA 21 line (v5 API)
       if (data.ema21 && data.ema21.length > 0) {
-        const ema21 = chart.addLineSeries({
+        const ema21 = chart.addSeries(LineSeries, {
           color: "#f59e0b",
           lineWidth: 1,
           priceLineVisible: false,
