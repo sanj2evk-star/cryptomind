@@ -1,6 +1,7 @@
-import { useState, useCallback, lazy, Suspense } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { useApi } from "../hooks/useApi";
 import { useKeepAlive } from "../hooks/useKeepAlive";
+import { useTradeSound } from "../hooks/useTradeSound";
 import { fmtLocalTime, fmtLocalTimeShort, getTimezoneLabel } from "../hooks/useTime";
 import { Loading, ErrorBox, EmptyState } from "../components/StatusMessage";
 import MetricCard from "../components/MetricCard";
@@ -80,6 +81,7 @@ export default function Dashboard() {
   const { data: autoEquity, retry: rEquity } = useApi("/auto/equity?limit=100", 10000);
 
   const { status: sysStatus, lastPing } = useKeepAlive();
+  const { enabled: soundEnabled, toggle: toggleSound, checkTrades: checkTradeSound } = useTradeSound();
   const [refreshing, setRefreshing] = useState(false);
 
   const refreshAll = useCallback(() => {
@@ -134,6 +136,11 @@ export default function Dashboard() {
   const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
   const maxTradeRows = isTouch ? 12 : 15;
 
+  // Sound notification on new trades
+  useEffect(() => {
+    if (trades.length > 0) checkTradeSound(trades);
+  }, [trades, checkTradeSound]);
+
   return (
     <>
       {/* ── Header bar ── */}
@@ -187,6 +194,14 @@ export default function Dashboard() {
               {fmtLocalTimeShort(lastUpdate)} {TZ_LABEL}
             </span>
           )}
+
+          {/* Sound toggle */}
+          <button onClick={toggleSound} title={soundEnabled ? "Mute sounds" : "Enable sounds"} style={{
+            padding: "3px 8px", background: "var(--surface)", border: "1px solid var(--border)",
+            borderRadius: 4, color: soundEnabled ? "var(--text)" : "var(--text-muted)", fontSize: 13, cursor: "pointer",
+          }}>
+            {soundEnabled ? "🔊" : "🔇"}
+          </button>
 
           {/* Refresh */}
           <button onClick={refreshAll} disabled={refreshing} style={{
