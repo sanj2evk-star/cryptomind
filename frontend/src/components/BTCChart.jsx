@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createChart, ColorType, CrosshairMode, CandlestickSeries, LineSeries, AreaSeries } from "lightweight-charts";
+import SafariChart from "./SafariChart";
 
 const API = import.meta.env.VITE_API_URL || window.location.origin;
+
+// Detect iPad Safari — use pure SVG fallback
+function isIPadSafari() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+  const isWebKit = /AppleWebKit/.test(ua) && !/Chrome/.test(ua) && !/CriOS/.test(ua);
+  const isIPad = /iPad/.test(ua) || (isTouch && /Macintosh/.test(ua));
+  return isIPad && isWebKit;
+}
 
 const TIMEFRAMES = [
   { label: "1m", value: "1m" },
@@ -293,37 +304,58 @@ export default function BTCChart({ marketState, action, confidence, livePrice })
         </div>
       </div>
 
-      {/* Chart body */}
-      <div style={{ position: "relative", minHeight: 200 }}>
-        {loading && !lastCandle && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
-            <div className="spinner" />
-            <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Connecting to market data...</span>
-          </div>
-        )}
-        {(error || chartError) && !lastCandle && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
-            <div className="spinner" />
-            <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Reconnecting to market data...</span>
-            <span style={{ color: "var(--text-muted)", fontSize: 10, opacity: 0.5 }}>Auto-retrying every 10s</span>
-            <button onClick={() => fetchCandles(interval, mode)} style={{
-              padding: "4px 14px", background: "var(--bg)", border: "1px solid var(--border)",
-              borderRadius: 4, color: "var(--text)", fontSize: 11, cursor: "pointer", marginTop: 4,
-            }}>Retry now</button>
-          </div>
-        )}
-        <div ref={containerRef} style={{ width: "100%", minHeight: 200 }} />
-      </div>
-
-      {mode === "pro" && (
-        <div style={{ display: "flex", gap: 12, padding: "4px 14px 8px", fontSize: 9, color: "var(--text-muted)" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-            <span style={{ width: 10, height: 2, background: "#3b82f6", borderRadius: 1 }} /> EMA 9
-          </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-            <span style={{ width: 10, height: 2, background: "#f59e0b", borderRadius: 1 }} /> EMA 21
-          </span>
+      {/* Chart body — Safari iPad gets pure SVG fallback */}
+      {isIPadSafari() ? (
+        <div style={{ padding: "0 4px" }}>
+          {loading && !dataRef.current && (
+            <div style={{ height: 200, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <div className="spinner" />
+              <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Loading chart...</span>
+            </div>
+          )}
+          {dataRef.current && (
+            <SafariChart
+              candles={dataRef.current.candles}
+              ema9={dataRef.current.ema9}
+              ema21={dataRef.current.ema21}
+              height={200}
+            />
+          )}
         </div>
+      ) : (
+        <>
+          <div style={{ position: "relative", minHeight: 200 }}>
+            {loading && !lastCandle && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
+                <div className="spinner" />
+                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Connecting to market data...</span>
+              </div>
+            )}
+            {(error || chartError) && !lastCandle && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "var(--surface)", zIndex: 2, gap: 8 }}>
+                <div className="spinner" />
+                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Reconnecting to market data...</span>
+                <span style={{ color: "var(--text-muted)", fontSize: 10, opacity: 0.5 }}>Auto-retrying every 10s</span>
+                <button onClick={() => fetchCandles(interval, mode)} style={{
+                  padding: "4px 14px", background: "var(--bg)", border: "1px solid var(--border)",
+                  borderRadius: 4, color: "var(--text)", fontSize: 11, cursor: "pointer", marginTop: 4,
+                }}>Retry now</button>
+              </div>
+            )}
+            <div ref={containerRef} style={{ width: "100%", minHeight: 200 }} />
+          </div>
+
+          {mode === "pro" && (
+            <div style={{ display: "flex", gap: 12, padding: "4px 14px 8px", fontSize: 9, color: "var(--text-muted)" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <span style={{ width: 10, height: 2, background: "#3b82f6", borderRadius: 1 }} /> EMA 9
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <span style={{ width: 10, height: 2, background: "#f59e0b", borderRadius: 1 }} /> EMA 21
+              </span>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
