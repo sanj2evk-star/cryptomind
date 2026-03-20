@@ -415,6 +415,60 @@ def get_prediction():
         return {"action": "HOLD", "probability": 0, "reason": str(e)}
 
 
+@app.get("/debug/state")
+def debug_state():
+    """Real-time debug snapshot of the trading engine internals."""
+    state = auto_trader._state
+    indicators = state.get("indicators", {})
+    last_dec = state.get("last_decision") or {}
+    portfolio = auto_trader.load_auto_portfolio("admin")
+    mkt = state.get("market_state", {})
+
+    # Multi-strategy state
+    try:
+        import multi_strategy
+        ms_trades = multi_strategy.get_cycle_trades()
+        ms_idle = multi_strategy._cycle_count - multi_strategy._last_any_trade_cycle
+        ms_prev_vol = multi_strategy._prev_volatility
+    except Exception:
+        ms_trades, ms_idle, ms_prev_vol = [], 0, 0
+
+    return {
+        "price": state.get("last_price", 0),
+        "rsi": indicators.get("rsi", 0),
+        "ema": {
+            "short": indicators.get("ema_short", 0),
+            "long": indicators.get("ema_long", 0),
+        },
+        "accel": indicators.get("acceleration", 0),
+        "regime": mkt.get("state", "SLEEPING"),
+        "regime_score": mkt.get("confidence_score", 0),
+        "decision": {
+            "action": last_dec.get("action", "HOLD"),
+            "score": last_dec.get("score", 0),
+            "confidence": last_dec.get("confidence", 0),
+            "reasoning": last_dec.get("reasoning", ""),
+        },
+        "last_trade": {
+            "time": state.get("last_update", ""),
+            "cycle": state.get("cycle_count", 0),
+        },
+        "positions": {
+            "cash": portfolio.get("cash", 0),
+            "btc_holdings": portfolio.get("btc_holdings", 0),
+            "avg_entry_price": portfolio.get("avg_entry_price", 0),
+            "total_trades": portfolio.get("total_trades", 0),
+            "realized_pnl": portfolio.get("realized_pnl", 0),
+        },
+        "indicators_full": indicators,
+        "multi_strategy": {
+            "cycle_trades": ms_trades,
+            "idle_cycles": ms_idle,
+            "prev_volatility": ms_prev_vol,
+        },
+    }
+
+
 @app.get("/revival-watch")
 def get_revival_watch():
     """Killed strategies under revival watch."""
