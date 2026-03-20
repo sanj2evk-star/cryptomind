@@ -1215,26 +1215,71 @@ def run_cycle(user_id: str = "admin") -> dict:
     _state["cycle_count"] += 1
 
     # --- Run multi-strategy simulation ---
+    # CRITICAL: When multi_strategy fires a trade, we must:
+    #   1. Execute against the REAL portfolio (cash/btc_holdings)
+    #   2. Patch AI Decision state for dashboard consistency
+    #   3. Log to auto_trades.csv with real quantity
+    #   4. Save portfolio to disk
+    # This ensures execution + UI + portfolio manager all tell the same story.
+    _state["proposed_trades"] = []
+    _state["committed_trade"] = None
     try:
         import multi_strategy
         ms_result = multi_strategy.run_multi_cycle(price, indicators)
 
-        # ── SPLIT-BRAIN FIX: propagate multi-strategy trades to dashboard ──
-        # When multi_strategy fires a trade (especially trend_probe), update
-        # the main decision state so AI Decision card + trades count stay consistent.
         cycle_trades = ms_result.get("cycle_trades", [])
-        if cycle_trades:
-            latest_trade = cycle_trades[-1]  # most recent trade this cycle
-            trade_action = latest_trade.get("action", "HOLD")
-            trade_entry_type = latest_trade.get("entry_type", "full")
-            trade_strategy = latest_trade.get("strategy", "unknown")
-            trade_reasons = latest_trade.get("reasons", [])
+        _state["proposed_trades"] = [
+            {"action": t.get("action"), "strategy": t.get("strategy"),
+             "entry_type": t.get("entry_type"), "score": t.get("score", 0)}
+            for t in cycle_trades
+        ]
 
-            if trade_action != "HOLD":
-                # Patch the last_decision to reflect the probe trade
-                dec = _state.get("last_decision")
-                if dec and dec.get("action") == "HOLD":
-                    # Add probe context to the existing HOLD decision
+        # Select ONE trade to commit (highest score, or first if tied)
+        # Only commit if the main decision was HOLD (avoid double-executing)
+        if cycle_trades and result["action"] == "HOLD":
+            # Sort by score descending, pick best
+            candidates = [t for t in cycle_trades if t.get("action") != "HOLD"]
+            if candidates:
+                best = max(candidates, key=lambda t: t.get("score", 0))
+                trade_action = best.get("action", "HOLD")
+                trade_entry_type = best.get("entry_type", "full")
+                trade_strategy = best.get("strategy", "unknown")
+                trade_reasons = best.get("reasons", [])
+
+                # Determine position size
+                if "trend_probe" in trade_entry_type or "exploratory" in str(trade_reasons):
+                    pos_size = 0.03
+                elif "probe" in trade_entry_type:
+                    pos_size = 0.05
+                else:
+                    pos_size = 0.10
+
+                # Build a proper decision dict for execute_trade()
+                probe_decision = {
+                    "action": trade_action,
+                    "price": price,
+                    "position_size": pos_size,
+                    "confidence": best.get("confidence", 0.30),
+                    "score": best.get("score", 50),
+                    "signals": decision.get("signals", {}),
+                }
+
+                # Re-load portfolio (in case main cycle already modified it)
+                portfolio = load_auto_portfolio(user_id)
+
+                # EXECUTE against real portfolio
+                probe_result = execute_trade(probe_decision, portfolio)
+
+                if probe_result["action"] != "HOLD":
+                    # Save updated portfolio to disk
+                    save_auto_portfolio(user_id, portfolio)
+
+                    # Log trade with real quantity
+                    log_auto_trade(user_id, probe_decision, probe_result, portfolio)
+                    log_auto_equity(user_id, price, portfolio)
+
+                    # Patch AI Decision state for dashboard
+                    dec = _state.get("last_decision") or {}
                     probe_label = trade_entry_type.replace("_", " ")
                     dec["action"] = trade_action
                     dec["reasoning"] = (
@@ -1244,36 +1289,41 @@ def run_cycle(user_id: str = "admin") -> dict:
                     dec["why"] = dec.get("why", []) + [
                         f"Strategy {trade_strategy} fired {probe_label}",
                     ] + trade_reasons[:2]
-                    # Bump score slightly to reflect partial bias (+5 to +10)
                     if trade_action == "BUY":
                         dec["score"] = min(100, dec.get("score", 50) + 7)
                     elif trade_action == "SELL":
                         dec["score"] = max(0, dec.get("score", 50) - 7)
-                    dec["position_size"] = 0.03  # trend_probe size
+                    dec["position_size"] = pos_size
                     dec["confidence"] = max(dec.get("confidence", 0), 0.30)
                     _state["last_decision"] = dec
 
-                # Log the probe trade to auto_trades.csv so it shows in Recent Auto-Trades
-                probe_decision = {
-                    "action": trade_action,
-                    "confidence": latest_trade.get("confidence", 0.30),
-                    "score": latest_trade.get("score", 50),
-                    "price": price,
-                    "signals": dec.get("signals", {}) if dec else {},
-                }
-                probe_result = {
-                    "action": trade_action,
-                    "quantity": 0.0,  # multi_strategy manages its own portfolio
-                    "pnl": latest_trade.get("pnl", 0),
-                    "reason": f"{trade_entry_type} via {trade_strategy}",
-                }
-                log_auto_trade(user_id, probe_decision, probe_result, portfolio)
+                    # Track committed trade for debug
+                    _state["committed_trade"] = {
+                        "action": trade_action,
+                        "strategy": trade_strategy,
+                        "entry_type": trade_entry_type,
+                        "quantity": probe_result["quantity"],
+                        "price": price,
+                        "pos_size_pct": pos_size,
+                        "cash_after": portfolio["cash"],
+                        "btc_after": portfolio["btc_holdings"],
+                    }
 
-                print(f"[split-brain-fix] Synced {trade_entry_type} {trade_action} "
-                      f"from {trade_strategy} to dashboard")
+                    # Update session counters
+                    _state["session_trades_taken"] += 1
+                    if trade_action == "BUY":
+                        _state["session_buys"] += 1
+                    elif trade_action == "SELL":
+                        _state["session_sells"] += 1
+
+                    print(f"[execution] COMMITTED {trade_entry_type} {trade_action} "
+                          f"from {trade_strategy}: qty={probe_result['quantity']:.8f} BTC "
+                          f"cash={portfolio['cash']:.2f} btc={portfolio['btc_holdings']:.8f}")
 
     except Exception as e:
+        import traceback
         print(f"[multi_strategy] Error: {e}")
+        traceback.print_exc()
 
     # --- Confidence tracking ---
     try:

@@ -466,6 +466,13 @@ def debug_state():
             "idle_cycles": ms_idle,
             "prev_volatility": ms_prev_vol,
         },
+        "proposed_trades_this_cycle": state.get("proposed_trades", []),
+        "committed_trade_this_cycle": state.get("committed_trade"),
+        "portfolio_after_trade": {
+            "cash": portfolio.get("cash", 0),
+            "btc_holdings": portfolio.get("btc_holdings", 0),
+            "total_trades": portfolio.get("total_trades", 0),
+        },
     }
 
 
