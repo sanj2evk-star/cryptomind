@@ -365,6 +365,7 @@ export default function Dashboard() {
                   {decision.position_size > 0 && (
                     <span style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>
                       {(decision.position_size * 100).toFixed(0)}% size
+                      {price > 0 && ` ($${(decision.position_size * cash).toFixed(2)})`}
                     </span>
                   )}
                 </div>
@@ -555,9 +556,9 @@ export default function Dashboard() {
                     <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Time</th>
                     <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Action</th>
                     <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Price</th>
+                    <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Size</th>
                     <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>P&L</th>
                     <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Score</th>
-                    <th style={{ padding: isTouch ? "7px 10px" : "3px 6px" }}>Conf</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -568,6 +569,10 @@ export default function Dashboard() {
                     const isBuy = action === "BUY";
                     const isSell = action === "SELL";
                     const isHighlighted = proMode && highlightRow === t.timestamp;
+                    const qty = parseFloat(t.quantity) || 0;
+                    const tPrice = parseFloat(t.price) || 0;
+                    const posSize = qty * tPrice;
+                    const posPct = equity > 0 ? (posSize / equity * 100) : 0;
                     return (
                       <tr key={i} style={{
                         opacity: isHold ? 0.4 : 1,
@@ -580,10 +585,17 @@ export default function Dashboard() {
                       }}>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px", fontSize: 10 }}>{fmtLocalTimeShort(t.timestamp)}</td>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}><span className={`tag ${action.toLowerCase()}`}>{action}</span></td>
-                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{fmtPrice(t.price)}</td>
+                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{fmtPrice(tPrice)}</td>
+                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>
+                          {qty > 0 ? (
+                            <span title={`${qty.toFixed(6)} BTC`}>
+                              ${posSize.toFixed(2)}
+                              <span style={{ fontSize: 9, color: "var(--text-muted)", marginLeft: 2 }}>{posPct.toFixed(1)}%</span>
+                            </span>
+                          ) : "—"}
+                        </td>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px", color: pnl >= 0 ? "var(--green)" : "var(--red)" }}>{fmt(pnl)}</td>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{t.score ?? "—"}</td>
-                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{((parseFloat(t.confidence) || 0) * 100).toFixed(0)}%</td>
                       </tr>
                     );
                   })}
