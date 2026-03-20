@@ -1217,7 +1217,61 @@ def run_cycle(user_id: str = "admin") -> dict:
     # --- Run multi-strategy simulation ---
     try:
         import multi_strategy
-        multi_strategy.run_multi_cycle(price, indicators)
+        ms_result = multi_strategy.run_multi_cycle(price, indicators)
+
+        # ── SPLIT-BRAIN FIX: propagate multi-strategy trades to dashboard ──
+        # When multi_strategy fires a trade (especially trend_probe), update
+        # the main decision state so AI Decision card + trades count stay consistent.
+        cycle_trades = ms_result.get("cycle_trades", [])
+        if cycle_trades:
+            latest_trade = cycle_trades[-1]  # most recent trade this cycle
+            trade_action = latest_trade.get("action", "HOLD")
+            trade_entry_type = latest_trade.get("entry_type", "full")
+            trade_strategy = latest_trade.get("strategy", "unknown")
+            trade_reasons = latest_trade.get("reasons", [])
+
+            if trade_action != "HOLD":
+                # Patch the last_decision to reflect the probe trade
+                dec = _state.get("last_decision")
+                if dec and dec.get("action") == "HOLD":
+                    # Add probe context to the existing HOLD decision
+                    probe_label = trade_entry_type.replace("_", " ")
+                    dec["action"] = trade_action
+                    dec["reasoning"] = (
+                        f"{probe_label} ({trade_strategy}): "
+                        + (trade_reasons[-1] if trade_reasons else "probe entry")
+                    )
+                    dec["why"] = dec.get("why", []) + [
+                        f"Strategy {trade_strategy} fired {probe_label}",
+                    ] + trade_reasons[:2]
+                    # Bump score slightly to reflect partial bias (+5 to +10)
+                    if trade_action == "BUY":
+                        dec["score"] = min(100, dec.get("score", 50) + 7)
+                    elif trade_action == "SELL":
+                        dec["score"] = max(0, dec.get("score", 50) - 7)
+                    dec["position_size"] = 0.03  # trend_probe size
+                    dec["confidence"] = max(dec.get("confidence", 0), 0.30)
+                    _state["last_decision"] = dec
+
+                # Log the probe trade to auto_trades.csv so it shows in Recent Auto-Trades
+                probe_decision = {
+                    "action": trade_action,
+                    "confidence": latest_trade.get("confidence", 0.30),
+                    "score": latest_trade.get("score", 50),
+                    "price": price,
+                    "signals": dec.get("signals", {}) if dec else {},
+                }
+                probe_result = {
+                    "action": trade_action,
+                    "quantity": 0.0,  # multi_strategy manages its own portfolio
+                    "pnl": latest_trade.get("pnl", 0),
+                    "reason": f"{trade_entry_type} via {trade_strategy}",
+                }
+                log_auto_trade(user_id, probe_decision, probe_result, portfolio)
+
+                print(f"[split-brain-fix] Synced {trade_entry_type} {trade_action} "
+                      f"from {trade_strategy} to dashboard")
+
     except Exception as e:
         print(f"[multi_strategy] Error: {e}")
 

@@ -76,6 +76,9 @@ _last_switch_cycle = 0
 _last_realloc_cycle = 0
 _allocations: dict[str, float] = {}
 _event_log: list[dict] = []
+_last_any_trade_cycle = 0  # track: last cycle ANY strategy traded (anti-paralysis)
+_prev_volatility = 0.0  # track: previous cycle volatility for "expanding" check
+_cycle_trades: list[dict] = []  # trades executed THIS cycle (for split-brain fix)
 
 
 def _log_event(event: str, **kwargs):
@@ -426,7 +429,7 @@ def _check_kill_revive(price: float):
 
 def _run_strategy(name: str, indicators: dict, market_state: dict, price: float) -> dict:
     """Run decision + execution for one strategy."""
-    global _probe_this_cycle
+    global _probe_this_cycle, _last_any_trade_cycle
     s = _strategies[name]
     profile = PROFILES[name]
     mkt = market_state["state"]
@@ -670,48 +673,101 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
 
     # ══════════════════════════════════════════════════════════
     # TREND PROBE — unified early trend detection module
-    # Fires for ANY strategy: price > EMA, RSI 52-68, higher lows, vol ok
-    # Only 1 trend_probe per direction per cycle, 3% position
+    # Strict conditions: price>EMA, RSI 52-68, confirmed higher lows,
+    # structure break, vol LOW+expanding, accel>=0.  3% probe only.
+    # Only 1 trend_probe per direction per cycle.
     # ══════════════════════════════════════════════════════════
     if (action == "HOLD" and btc < 0.0001 and available_cash > 0.3
             and _probe_this_cycle != _cycle_count and not regime_blocked):
-        # Guard: skip if accel strongly negative
-        # Guard: skip if price extended far from EMA (>1.5% above)
-        ema_dist_pct = (price - ema_long) / ema_long * 100 if ema_long > 0 else 0
-        accel_ok = accel > -3  # not strongly negative
-        not_extended = ema_dist_pct < 1.5
+        # --- Conditions ---
         price_above_ema = ema_short > ema_long
         rsi_in_range = 52 <= rsi <= 68
-        # Check short-term higher lows (3-5 candles)
+        accel_ok = accel >= 0  # strict: must not be negative at all
+
+        # Guard: skip if price extended far from EMA (>1.2% above)
+        ema_dist_pct = (price - ema_long) / ema_long * 100 if ema_long > 0 else 0
+        not_extended = 0 < ema_dist_pct < 1.2
+
+        # Higher lows: compare local minimums of consecutive 2-candle windows
         ph = trader_state.get("price_history", [])
         recent = ph[-5:] if len(ph) >= 5 else ph
         higher_lows = False
-        if len(recent) >= 3:
-            lows = recent[-3:]  # last 3 prices as proxy for lows
-            higher_lows = all(lows[i] >= lows[i - 1] for i in range(1, len(lows)))
-        # Volatility: low or rising (not crashing)
-        vol_ok = vol < 0.002 or accel > 0  # low vol or improving
+        if len(recent) >= 4:
+            # Compare mins of overlapping pairs: [0,1], [1,2], [2,3]
+            pair_mins = [min(recent[i], recent[i + 1]) for i in range(len(recent) - 1)]
+            higher_lows = all(pair_mins[i] >= pair_mins[i - 1] for i in range(1, len(pair_mins)))
+
+        # Minor structure break: current price > highest of last 3-5 candles (excl. current)
+        structure_break = False
+        if len(ph) >= 4:
+            lookback = ph[-5:-1] if len(ph) >= 5 else ph[:-1]
+            structure_break = price > max(lookback)
+
+        # Volatility: LOW but expanding (current vol > previous cycle's vol)
+        vol_low_expanding = vol < 0.0015 and vol > _prev_volatility and _prev_volatility > 0
 
         # Guard: don't stack if already trend_probed this direction in this regime
         already_probed = s.get("_trend_probe_regime", "") == regime
 
-        if (price_above_ema and rsi_in_range and higher_lows and vol_ok
-                and accel_ok and not_extended and not already_probed):
+        # --- All conditions must pass ---
+        tp_pass = (price_above_ema and rsi_in_range and higher_lows
+                   and structure_break and vol_low_expanding
+                   and accel_ok and not_extended and not already_probed)
+
+        if tp_pass:
             action = "BUY"
             is_probe = True
             entry_met = True
             _probe_this_cycle = _cycle_count
-            s["_trend_probe_regime"] = regime  # mark: no stacking until regime shift
+            s["_trend_probe_regime"] = regime
             reasons.append(
-                f"trend_probe: EMA+, RSI={rsi:.0f}, higher lows, "
-                f"vol={vol:.5f}, accel={accel:.1f}"
+                f"trend_probe: EMA+, RSI={rsi:.0f}, higher lows confirmed, "
+                f"structure break, vol={vol:.5f} expanding, accel={accel:.1f}"
             )
+            print(f"[trend_probe] TRIGGERED for {name}: "
+                  f"price={price:.0f} EMA_dist={ema_dist_pct:.2f}% RSI={rsi:.0f} "
+                  f"accel={accel:.1f} vol={vol:.5f} prev_vol={_prev_volatility:.5f} "
+                  f"regime={regime} | higher_lows=True structure_break=True")
 
-    # Reset trend_probe stacking guard on regime change
+    # Reset trend_probe stacking guard on regime change or clear breakout
     prev_regime_tp = s.get("_prev_regime_tp", regime)
     if prev_regime_tp != regime:
         s["_trend_probe_regime"] = ""  # allow new trend_probe after regime shift
     s["_prev_regime_tp"] = regime
+
+    # ══════════════════════════════════════════════════════════
+    # ANTI-PARALYSIS FALLBACK — exploratory trend_probe after long idle
+    # If no strategy has traded for 60+ cycles (~30 min) and conditions
+    # are constructive, allow ONE exploratory 3% probe to avoid total freeze.
+    # ══════════════════════════════════════════════════════════
+    idle_cycles = _cycle_count - _last_any_trade_cycle
+    if (action == "HOLD" and btc < 0.0001 and available_cash > 0.3
+            and _probe_this_cycle != _cycle_count and not regime_blocked
+            and idle_cycles >= 60):
+        # Relaxed but still valid conditions
+        ap_price_above = ema_short > ema_long
+        ap_rsi_ok = 55 <= rsi <= 68
+        ap_vol_low = vol < 0.002
+        ap_accel_ok = accel >= 0
+        ap_ema_dist = (price - ema_long) / ema_long * 100 if ema_long > 0 else 0
+        ap_not_extended = 0 < ap_ema_dist < 1.5
+        # Don't stack: only 1 anti-paralysis probe per strategy per idle window
+        ap_already = s.get("_anti_paralysis_cycle", 0) > _last_any_trade_cycle
+
+        if (ap_price_above and ap_rsi_ok and ap_vol_low
+                and ap_accel_ok and ap_not_extended and not ap_already):
+            action = "BUY"
+            is_probe = True
+            entry_met = True
+            _probe_this_cycle = _cycle_count
+            s["_anti_paralysis_cycle"] = _cycle_count
+            reasons.append(
+                f"trend_probe (exploratory): {idle_cycles} idle cycles, "
+                f"EMA+, RSI={rsi:.0f}, vol low, accel={accel:.1f}"
+            )
+            print(f"[trend_probe] ANTI-PARALYSIS for {name}: "
+                  f"idle={idle_cycles} cycles, price={price:.0f} RSI={rsi:.0f} "
+                  f"accel={accel:.1f} vol={vol:.5f} regime={regime}")
 
     # ══════════════════════════════════════════════════════════
     # SLEEPING REGIME PROBE — price breaks local high + accel + RSI confirm
@@ -719,11 +775,10 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     # ══════════════════════════════════════════════════════════
     if (action == "HOLD" and regime == "SLEEPING" and btc < 0.0001
             and available_cash > 0.3 and _probe_this_cycle != _cycle_count):
-        # Check: price breaks recent local high (short window)
         ph = trader_state.get("price_history", [])
         window = ph[-20:] if len(ph) >= 20 else ph
         if len(window) >= 5:
-            local_high = max(window[:-1])  # highest in window excluding current
+            local_high = max(window[:-1])
             current_price = window[-1]
             if current_price > local_high and accel > 0 and rsi > 55:
                 action = "BUY"
@@ -779,7 +834,8 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     pnl = 0.0
     if action == "BUY":
         # Probe entries use smaller position (trend_probe=3%, other probes=5%)
-        if is_probe and "trend_probe" in (reasons[-1] if reasons else ""):
+        last_reason = reasons[-1] if reasons else ""
+        if is_probe and ("trend_probe" in last_reason or "exploratory" in last_reason):
             pos_pct = 0.03
         elif is_probe:
             pos_pct = 0.05
@@ -844,15 +900,29 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
         except Exception:
             pass
 
-    # Trade log with full context
+    # Determine entry type label
+    if is_probe:
+        probe_reasons = " ".join(reasons)
+        if "trend_probe" in probe_reasons or "exploratory" in probe_reasons:
+            entry_type = "trend_probe"
+        elif "SLEEPING probe" in probe_reasons:
+            entry_type = "sleeping_probe"
+        else:
+            entry_type = "probe"
+    else:
+        entry_type = "full"
+
+    # Trade log with full context + export to _cycle_trades for dashboard sync
     if action != "HOLD":
-        s["trade_history"].append({
+        _last_any_trade_cycle = _cycle_count  # anti-paralysis tracker
+
+        trade_record = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "action": action, "price": round(price, 2),
             "pnl": round(pnl, 6), "score": total_score,
             "confidence": confidence, "market_state": mkt,
             "strategy": name,
-            "entry_type": ("trend_probe" if is_probe and "trend_probe" in (reasons[0] if reasons else "") else "probe") if is_probe else "full",
+            "entry_type": entry_type,
             "hold_zone_adj": hold_zone_adj,
             "indicators": {
                 "rsi": round(indicators.get("rsi", 0), 1),
@@ -860,9 +930,13 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
                 "volatility": round(indicators.get("volatility", 0), 5),
             },
             "reasons": reasons,
-        })
+        }
+        s["trade_history"].append(trade_record)
         if len(s["trade_history"]) > 100:
             s["trade_history"] = s["trade_history"][-100:]
+
+        # Export for split-brain fix: dashboard/auto_trader can read this
+        _cycle_trades.append(trade_record)
 
     return {"action": action, "pnl": pnl}
 
@@ -872,7 +946,7 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
 # ---------------------------------------------------------------------------
 
 def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
-    global _cycle_count, _last_market_state, _leaderboard
+    global _cycle_count, _last_market_state, _leaderboard, _prev_volatility, _cycle_trades
 
     _ensure_initialized()
 
@@ -888,9 +962,15 @@ def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
     mkt = detect_market_state(indicators, prev)
     _last_market_state = mkt
 
+    # Clear cycle trades before running strategies
+    _cycle_trades = []
+
     # Run all strategies
     for name in PROFILES:
         _run_strategy(name, indicators, mkt, price)
+
+    # Update prev_volatility AFTER strategies run (so next cycle sees this cycle's vol)
+    _prev_volatility = indicators.get("volatility", 0)
 
     _cycle_count += 1
 
@@ -929,7 +1009,15 @@ def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
 
     _leaderboard = _compute_leaderboard(price)
 
-    return {"cycle": _cycle_count, "price": price, "market_state": mkt, "leaderboard": _leaderboard}
+    return {
+        "cycle": _cycle_count, "price": price, "market_state": mkt,
+        "leaderboard": _leaderboard, "cycle_trades": list(_cycle_trades),
+    }
+
+
+def get_cycle_trades() -> list[dict]:
+    """Return trades executed in the most recent cycle (for dashboard sync)."""
+    return list(_cycle_trades)
 
 
 def _compute_leaderboard(price: float) -> list[dict]:
@@ -1016,6 +1104,14 @@ def get_next_move_prediction() -> dict:
     # Regime boost
     if mkt in ("WAKING_UP", "ACTIVE"): signal_lean += 3
     elif mkt == "BREAKOUT": signal_lean += 5
+
+    # Trend probe bias: if a trend_probe fired recently, boost buy signal
+    if _cycle_trades:
+        for ct in _cycle_trades:
+            if ct.get("entry_type") in ("trend_probe",) and ct.get("action") == "BUY":
+                signal_lean += 8  # +8 bias for active trend_probe
+                reasons.append("trend_probe active — partial BUY bias")
+                break
 
     if signal_lean > 0:
         buy_pct += min(signal_lean, 15)
