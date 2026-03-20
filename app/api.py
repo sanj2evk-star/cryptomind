@@ -430,8 +430,22 @@ def debug_state():
         ms_trades = multi_strategy.get_cycle_trades()
         ms_idle = multi_strategy._cycle_count - multi_strategy._last_any_trade_cycle
         ms_prev_vol = multi_strategy._prev_volatility
+        ms_exposure = multi_strategy._current_exposure_pct
+        ms_exposure_cap = multi_strategy._exposure_cap_active
+        ms_blocked = multi_strategy._blocked_trade_reason
+        ms_quality = multi_strategy._market_quality_score
+        ms_perf = dict(multi_strategy._strategy_performance)
+        ms_reentry = {
+            "consecutive_buys": multi_strategy._consecutive_buys,
+            "last_sell_cycle": multi_strategy._last_sell_cycle,
+            "last_buy_cycle": multi_strategy._last_buy_cycle,
+            "last_committed_score": multi_strategy._last_committed_score,
+            "last_committed_regime": multi_strategy._last_committed_regime,
+        }
     except Exception:
         ms_trades, ms_idle, ms_prev_vol = [], 0, 0
+        ms_exposure, ms_exposure_cap, ms_blocked, ms_quality = 0, "", "", 0
+        ms_perf, ms_reentry = {}, {}
 
     return {
         "price": state.get("last_price", 0),
@@ -473,6 +487,13 @@ def debug_state():
             "btc_holdings": portfolio.get("btc_holdings", 0),
             "total_trades": portfolio.get("total_trades", 0),
         },
+        # ── NEW: Portfolio Brain & Calibration Debug ──
+        "total_exposure_pct": round(ms_exposure, 2),
+        "exposure_cap_active": ms_exposure_cap,
+        "blocked_trade_reason": ms_blocked,
+        "market_quality_score": ms_quality,
+        "strategy_performance_summary": ms_perf,
+        "reentry_state": ms_reentry,
     }
 
 

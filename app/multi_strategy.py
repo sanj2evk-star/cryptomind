@@ -56,6 +56,39 @@ KILL_MIN_WINRATE_TRADES = 10
 KILL_MIN_WINRATE = 30.0
 REVIVE_COOLDOWN = 120
 
+# ═══════════════════════════════════════════════════════════════════════════
+# PORTFOLIO EXPOSURE BRAIN — regime-aware exposure caps
+# ═══════════════════════════════════════════════════════════════════════════
+EXPOSURE_CAPS = {
+    "SLEEPING":   0.35,   # max 35% exposure in dead market
+    "WAKING_UP":  0.55,   # max 55% exposure when waking
+    "ACTIVE":     0.75,   # max 75% in active market
+    "BREAKOUT":   0.80,   # max 80% during breakouts
+}
+HEAVY_EXPOSURE_PCT = 0.70   # above this = "heavily allocated"
+MAX_EXPOSURE_HARD = 0.85    # absolute ceiling — block all new BUY above this
+REDUCE_SIZE_ABOVE = 0.50    # reduce new BUY size above 50% exposure
+SIZE_REDUCTION_FACTOR = 0.5 # cut new buy size by 50% when >50% exposed
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MINIMUM EDGE FILTER — reject low-quality trades
+# ═══════════════════════════════════════════════════════════════════════════
+MIN_EDGE_BY_REGIME = {
+    "SLEEPING":   {"min_score": 58, "min_confidence": 0.15},
+    "WAKING_UP":  {"min_score": 52, "min_confidence": 0.08},
+    "ACTIVE":     {"min_score": 48, "min_confidence": 0.05},
+    "BREAKOUT":   {"min_score": 45, "min_confidence": 0.03},
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RE-ENTRY / STACKING DISCIPLINE
+# ═══════════════════════════════════════════════════════════════════════════
+MAX_BUY_ENTRIES_BEFORE_SELL = 3     # max stacked BUY entries before requiring a SELL
+COOLDOWN_AFTER_SELL_CYCLES = 4      # ~2 min cooldown after SELL before new BUY
+COOLDOWN_AFTER_BUY_CYCLES = 2       # ~1 min cooldown after BUY before another BUY
+MIN_SCORE_IMPROVEMENT_FOR_ADD = 5   # must have 5+ higher score to stack
+MIN_REGIME_IMPROVEMENT = True       # or regime must be better to stack
+
 # ---------------------------------------------------------------------------
 # State — SINGLE GLOBAL PORTFOLIO
 # ---------------------------------------------------------------------------
@@ -79,6 +112,20 @@ _event_log: list[dict] = []
 _last_any_trade_cycle = 0  # track: last cycle ANY strategy traded (anti-paralysis)
 _prev_volatility = 0.0  # track: previous cycle volatility for "expanding" check
 _cycle_trades: list[dict] = []  # trades executed THIS cycle (for split-brain fix)
+
+# Re-entry discipline state
+_consecutive_buys = 0          # stacked buys without a sell
+_last_sell_cycle = 0           # cycle of last SELL
+_last_buy_cycle = 0            # cycle of last BUY
+_last_committed_score = 0      # score of last committed trade
+_last_committed_regime = "SLEEPING"
+
+# Exposure tracking (updated each cycle for debug/visibility)
+_current_exposure_pct = 0.0
+_exposure_cap_active = ""
+_blocked_trade_reason = ""
+_market_quality_score = 0
+_strategy_performance: dict[str, dict] = {}  # adaptive weighting data
 
 
 def _log_event(event: str, **kwargs):
@@ -132,6 +179,168 @@ def _get_strategy_virtual_equity(name: str, price: float) -> float:
     base_alloc = INITIAL_BALANCE * alloc_pct  # what it was given
     unrealized = (price - s["entry_price"]) * s["btc_holdings"] if s["btc_holdings"] > 0 else 0
     return base_alloc + s["realized_pnl"] + unrealized
+
+
+def _get_exposure_pct(price: float) -> float:
+    """Current portfolio exposure as % (BTC value / total equity)."""
+    btc_value = sum(s["btc_holdings"] * price for s in _strategies.values())
+    equity = _portfolio["total_cash"] + btc_value
+    return (btc_value / equity * 100) if equity > 0 else 0
+
+
+def _check_exposure_allows_buy(price: float, regime: str) -> tuple[bool, str, float]:
+    """Check if portfolio exposure allows a new BUY.
+
+    Returns: (allowed, reason, size_multiplier)
+    - allowed: True if BUY is permitted
+    - reason: explanation if blocked
+    - size_multiplier: 1.0 = full size, 0.5 = reduced, etc.
+    """
+    global _current_exposure_pct, _exposure_cap_active
+
+    exposure = _get_exposure_pct(price)
+    _current_exposure_pct = exposure
+    cap = EXPOSURE_CAPS.get(regime, 0.75) * 100  # convert to %
+    _exposure_cap_active = f"{regime}:{cap:.0f}%"
+
+    # Hard ceiling — block all BUY
+    if exposure >= MAX_EXPOSURE_HARD * 100:
+        return False, f"Hard exposure cap {MAX_EXPOSURE_HARD*100:.0f}% (at {exposure:.1f}%)", 0.0
+
+    # Regime cap — block unless exceptionally strong
+    if exposure >= cap:
+        return False, f"Regime cap {cap:.0f}% for {regime} (at {exposure:.1f}%)", 0.0
+
+    # Heavy allocation — reduce size significantly
+    if exposure >= HEAVY_EXPOSURE_PCT * 100:
+        return True, f"Heavy exposure {exposure:.1f}% — size reduced", SIZE_REDUCTION_FACTOR * 0.5
+
+    # Above 50% — moderate size reduction
+    if exposure >= REDUCE_SIZE_ABOVE * 100:
+        return True, f"Elevated exposure {exposure:.1f}% — size reduced", SIZE_REDUCTION_FACTOR
+
+    return True, "", 1.0
+
+
+def _compute_market_quality(indicators: dict, regime: str) -> int:
+    """Compute a market quality score 0-100.
+    Higher = better conditions for trading.
+    Used to filter out marginal trades in poor conditions.
+    """
+    score = 50  # baseline
+
+    rsi = indicators.get("rsi", 50)
+    accel = indicators.get("acceleration", 0)
+    vol = indicators.get("volatility", 0)
+    slope = indicators.get("slope", 0)
+    momentum = indicators.get("momentum", 0)
+
+    # Regime quality
+    regime_boost = {"SLEEPING": -15, "WAKING_UP": 0, "ACTIVE": 15, "BREAKOUT": 20}
+    score += regime_boost.get(regime, 0)
+
+    # Trend clarity (slope + momentum alignment = clear trend)
+    if (slope > 0 and momentum > 0) or (slope < 0 and momentum < 0):
+        score += 10  # aligned
+    else:
+        score -= 5   # conflicting
+
+    # Acceleration confirms direction
+    if abs(accel) > 3:
+        score += 8
+    elif abs(accel) < 0.5:
+        score -= 5
+
+    # RSI not in dead zone (45-55 = indecisive)
+    if 45 <= rsi <= 55:
+        score -= 8
+    elif rsi < 35 or rsi > 65:
+        score += 5  # clear signal
+
+    # Volatility: too low = dead, moderate = good, too high = risky
+    if vol < 0.00005:
+        score -= 10
+    elif 0.0002 < vol < 0.002:
+        score += 5
+    elif vol > 0.005:
+        score -= 5
+
+    return max(0, min(100, score))
+
+
+def _check_reentry_discipline(action: str, score: float, regime: str) -> tuple[bool, str]:
+    """Check re-entry / stacking discipline.
+
+    Returns: (allowed, reason)
+    """
+    global _blocked_trade_reason
+
+    if action == "BUY":
+        # Too many stacked buys without a sell
+        if _consecutive_buys >= MAX_BUY_ENTRIES_BEFORE_SELL:
+            reason = f"Max {MAX_BUY_ENTRIES_BEFORE_SELL} buys before sell (stacked={_consecutive_buys})"
+            _blocked_trade_reason = reason
+            return False, reason
+
+        # Cooldown after sell
+        if _last_sell_cycle > 0 and (_cycle_count - _last_sell_cycle) < COOLDOWN_AFTER_SELL_CYCLES:
+            remaining = COOLDOWN_AFTER_SELL_CYCLES - (_cycle_count - _last_sell_cycle)
+            reason = f"Post-sell cooldown ({remaining} cycles left)"
+            _blocked_trade_reason = reason
+            return False, reason
+
+        # Cooldown after buy (prevent rapid stacking)
+        if _last_buy_cycle > 0 and (_cycle_count - _last_buy_cycle) < COOLDOWN_AFTER_BUY_CYCLES:
+            remaining = COOLDOWN_AFTER_BUY_CYCLES - (_cycle_count - _last_buy_cycle)
+            reason = f"Post-buy cooldown ({remaining} cycles left)"
+            _blocked_trade_reason = reason
+            return False, reason
+
+        # Require improvement to stack additional buys
+        if _consecutive_buys > 0:
+            score_improved = score >= _last_committed_score + MIN_SCORE_IMPROVEMENT_FOR_ADD
+            regime_improved = _regime_rank(regime) > _regime_rank(_last_committed_regime)
+            if not score_improved and not regime_improved:
+                reason = (f"No improvement to stack (score {score:.0f} vs last {_last_committed_score:.0f}, "
+                         f"regime {regime} vs {_last_committed_regime})")
+                _blocked_trade_reason = reason
+                return False, reason
+
+    _blocked_trade_reason = ""
+    return True, ""
+
+
+def _regime_rank(regime: str) -> int:
+    """Rank regimes for comparison. Higher = more active."""
+    return {"SLEEPING": 0, "WAKING_UP": 1, "ACTIVE": 2, "BREAKOUT": 3}.get(regime, 0)
+
+
+def _compute_strategy_trust(name: str, price: float) -> float:
+    """Compute a trust score 0-1 for a strategy based on recent performance.
+    Used for adaptive weighting."""
+    s = _strategies.get(name, {})
+    if not s:
+        return 0.5
+
+    p = _get_performance(name, price)
+    trades = p["trade_count"]
+    if trades < 2:
+        return 0.5  # not enough data
+
+    # Components
+    win_rate = p["win_rate"] / 100  # 0-1
+    dd_penalty = min(p["drawdown"] / 20, 1.0)  # 0-1, bad above 10%
+    recent_pnl = sum(s["last_10_pnl"][-5:]) if s["last_10_pnl"] else 0
+    recent_good = 1.0 if recent_pnl > 0 else (0.3 if recent_pnl == 0 else 0.0)
+    consec_loss_penalty = min(s["consecutive_losses"] / 3, 1.0)
+
+    trust = (
+        0.35 * win_rate
+        + 0.25 * (1.0 - dd_penalty)
+        + 0.25 * recent_good
+        + 0.15 * (1.0 - consec_loss_penalty)
+    )
+    return max(0.1, min(1.0, trust))
 
 
 def _ensure_initialized():
@@ -262,7 +471,13 @@ def _get_performance(name: str, price: float) -> dict:
 # ---------------------------------------------------------------------------
 
 def _reallocate_capital(price: float):
-    global _allocations, _last_realloc_cycle
+    """Adaptive capital reallocation using trust-weighted scoring.
+
+    Winning strategies with good recent performance and low drawdown
+    gradually receive more capital. Weak/noisy strategies receive less.
+    Bounded by MIN_ALLOC_PCT and MAX_ALLOC_PCT to prevent monopolization.
+    """
+    global _allocations, _last_realloc_cycle, _strategy_performance
     _last_realloc_cycle = _cycle_count
 
     scores = {}
@@ -271,13 +486,26 @@ def _reallocate_capital(price: float):
             scores[name] = 0.0
             continue
         p = _get_performance(name, price)
-        score = (
-            0.4 * p["total_return"]
-            + 0.3 * p["win_rate"]
-            + 0.2 * (p["avg_profit"] * 10000)
-            - 0.3 * p["drawdown"]
+        trust = _compute_strategy_trust(name, price)
+
+        # Trust-weighted score: performance * trust
+        raw_score = (
+            0.30 * p["total_return"]
+            + 0.25 * p["win_rate"]
+            + 0.15 * (p["avg_profit"] * 10000)
+            - 0.20 * p["drawdown"]
+            + 0.10 * (trust * 100)  # trust bonus 0-10
         )
-        scores[name] = max(score, 0.01)
+        scores[name] = max(raw_score, 0.01)
+
+        # Cache for debug visibility
+        _strategy_performance[name] = {
+            "trust": round(trust, 3),
+            "alloc_score": round(raw_score, 2),
+            "return": round(p["total_return"], 2),
+            "win_rate": round(p["win_rate"], 1),
+            "drawdown": round(p["drawdown"], 2),
+        }
 
     total = sum(scores.values())
     if total <= 0:
@@ -806,6 +1034,19 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
         action = "HOLD"
         reasons.append(f"Low confidence ({confidence:.0%})")
 
+    # ══════════════════════════════════════════════════════════
+    # MINIMUM EDGE FILTER — reject marginal trades in poor conditions
+    # Probes have their own guardrails so they bypass this
+    # ══════════════════════════════════════════════════════════
+    if action != "HOLD" and not is_probe:
+        edge_req = MIN_EDGE_BY_REGIME.get(regime, MIN_EDGE_BY_REGIME["SLEEPING"])
+        if action == "BUY" and total_score < edge_req["min_score"]:
+            action = "HOLD"
+            reasons.append(f"Edge filter: score {total_score:.0f} < {edge_req['min_score']} for {regime}")
+        elif action != "HOLD" and confidence < edge_req["min_confidence"]:
+            action = "HOLD"
+            reasons.append(f"Edge filter: conf {confidence:.0%} < {edge_req['min_confidence']:.0%} for {regime}")
+
     # Store entry condition status
     s["entry_condition_met"] = entry_met
 
@@ -830,6 +1071,27 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
         action = "HOLD"
         reasons.append("Anti flip-flop")
 
+    # ══════════════════════════════════════════════════════════
+    # PORTFOLIO EXPOSURE CHECK — before executing BUY
+    # ══════════════════════════════════════════════════════════
+    size_multiplier = 1.0
+    if action == "BUY":
+        exp_allowed, exp_reason, size_multiplier = _check_exposure_allows_buy(price, regime)
+        if not exp_allowed:
+            action = "HOLD"
+            reasons.append(f"Exposure block: {exp_reason}")
+
+    # ══════════════════════════════════════════════════════════
+    # SLEEPY MARKET REDUCTION — reduce frequency + size in SLEEPING
+    # ══════════════════════════════════════════════════════════
+    if action == "BUY" and regime == "SLEEPING" and not is_probe:
+        # In sleeping market, require stronger signal for full entries
+        if total_score < 62:
+            action = "HOLD"
+            reasons.append(f"Sleepy filter: score {total_score:.0f} < 62 for SLEEPING full entry")
+        else:
+            size_multiplier *= 0.6  # reduce size by 40% in sleeping market
+
     # ── Execute against GLOBAL portfolio ──
     pnl = 0.0
     if action == "BUY":
@@ -841,6 +1103,10 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
             pos_pct = 0.05
         else:
             pos_pct = profile["position_pct"]
+
+        # Apply exposure-driven size reduction
+        pos_pct *= size_multiplier
+
         spend = available_cash * pos_pct
         spend = min(spend, _portfolio["total_cash"] * 0.3)  # cap at 30% of total cash per trade
         spend = min(spend, _portfolio["total_cash"] - 1.0)  # keep $1 reserve
@@ -947,6 +1213,7 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
 
 def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
     global _cycle_count, _last_market_state, _leaderboard, _prev_volatility, _cycle_trades
+    global _market_quality_score, _current_exposure_pct, _blocked_trade_reason
 
     _ensure_initialized()
 
@@ -961,6 +1228,14 @@ def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
     prev = _last_market_state.get("state", "SLEEPING")
     mkt = detect_market_state(indicators, prev)
     _last_market_state = mkt
+    regime = mkt.get("state", "SLEEPING") if isinstance(mkt, dict) else str(mkt)
+
+    # Compute market quality for this cycle
+    _market_quality_score = _compute_market_quality(indicators, regime)
+
+    # Update exposure tracking
+    _current_exposure_pct = _get_exposure_pct(price)
+    _blocked_trade_reason = ""
 
     # Clear cycle trades before running strategies
     _cycle_trades = []

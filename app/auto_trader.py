@@ -1245,80 +1245,106 @@ def run_cycle(user_id: str = "admin") -> dict:
                 trade_entry_type = best.get("entry_type", "full")
                 trade_strategy = best.get("strategy", "unknown")
                 trade_reasons = best.get("reasons", [])
+                trade_score = best.get("score", 50)
+                trade_regime = best.get("market_state", {})
+                trade_regime_str = (trade_regime.get("state", "SLEEPING")
+                                    if isinstance(trade_regime, dict) else str(trade_regime))
 
-                # Determine position size
-                if "trend_probe" in trade_entry_type or "exploratory" in str(trade_reasons):
-                    pos_size = 0.03
-                elif "probe" in trade_entry_type:
-                    pos_size = 0.05
-                else:
-                    pos_size = 0.10
-
-                # Build a proper decision dict for execute_trade()
-                probe_decision = {
-                    "action": trade_action,
-                    "price": price,
-                    "position_size": pos_size,
-                    "confidence": best.get("confidence", 0.30),
-                    "score": best.get("score", 50),
-                    "signals": decision.get("signals", {}),
-                }
-
-                # Re-load portfolio (in case main cycle already modified it)
-                portfolio = load_auto_portfolio(user_id)
-
-                # EXECUTE against real portfolio
-                probe_result = execute_trade(probe_decision, portfolio)
-
-                if probe_result["action"] != "HOLD":
-                    # Save updated portfolio to disk
-                    save_auto_portfolio(user_id, portfolio)
-
-                    # Log trade with real quantity
-                    log_auto_trade(user_id, probe_decision, probe_result, portfolio)
-                    log_auto_equity(user_id, price, portfolio)
-
-                    # Patch AI Decision state for dashboard
-                    dec = _state.get("last_decision") or {}
-                    probe_label = trade_entry_type.replace("_", " ")
-                    dec["action"] = trade_action
-                    dec["reasoning"] = (
-                        f"{probe_label} ({trade_strategy}): "
-                        + (trade_reasons[-1] if trade_reasons else "probe entry")
-                    )
-                    dec["why"] = dec.get("why", []) + [
-                        f"Strategy {trade_strategy} fired {probe_label}",
-                    ] + trade_reasons[:2]
-                    if trade_action == "BUY":
-                        dec["score"] = min(100, dec.get("score", 50) + 7)
-                    elif trade_action == "SELL":
-                        dec["score"] = max(0, dec.get("score", 50) - 7)
-                    dec["position_size"] = pos_size
-                    dec["confidence"] = max(dec.get("confidence", 0), 0.30)
-                    _state["last_decision"] = dec
-
-                    # Track committed trade for debug
+                # ── RE-ENTRY DISCIPLINE CHECK ──
+                reentry_ok, reentry_reason = multi_strategy._check_reentry_discipline(
+                    trade_action, trade_score, trade_regime_str
+                )
+                if not reentry_ok:
+                    print(f"[execution] BLOCKED by re-entry discipline: {reentry_reason}")
                     _state["committed_trade"] = {
-                        "action": trade_action,
+                        "action": "BLOCKED",
+                        "reason": reentry_reason,
                         "strategy": trade_strategy,
-                        "entry_type": trade_entry_type,
-                        "quantity": probe_result["quantity"],
+                    }
+                else:
+                    # Determine position size
+                    if "trend_probe" in trade_entry_type or "exploratory" in str(trade_reasons):
+                        pos_size = 0.03
+                    elif "probe" in trade_entry_type:
+                        pos_size = 0.05
+                    else:
+                        pos_size = 0.10
+
+                    # Build a proper decision dict for execute_trade()
+                    probe_decision = {
+                        "action": trade_action,
                         "price": price,
-                        "pos_size_pct": pos_size,
-                        "cash_after": portfolio["cash"],
-                        "btc_after": portfolio["btc_holdings"],
+                        "position_size": pos_size,
+                        "confidence": best.get("confidence", 0.30),
+                        "score": trade_score,
+                        "signals": decision.get("signals", {}),
                     }
 
-                    # Update session counters
-                    _state["session_trades_taken"] += 1
-                    if trade_action == "BUY":
-                        _state["session_buys"] += 1
-                    elif trade_action == "SELL":
-                        _state["session_sells"] += 1
+                    # Re-load portfolio (in case main cycle already modified it)
+                    portfolio = load_auto_portfolio(user_id)
 
-                    print(f"[execution] COMMITTED {trade_entry_type} {trade_action} "
-                          f"from {trade_strategy}: qty={probe_result['quantity']:.8f} BTC "
-                          f"cash={portfolio['cash']:.2f} btc={portfolio['btc_holdings']:.8f}")
+                    # EXECUTE against real portfolio
+                    probe_result = execute_trade(probe_decision, portfolio)
+
+                    if probe_result["action"] != "HOLD":
+                        # Save updated portfolio to disk
+                        save_auto_portfolio(user_id, portfolio)
+
+                        # Log trade with real quantity
+                        log_auto_trade(user_id, probe_decision, probe_result, portfolio)
+                        log_auto_equity(user_id, price, portfolio)
+
+                        # ── UPDATE RE-ENTRY STATE ──
+                        if trade_action == "BUY":
+                            multi_strategy._consecutive_buys += 1
+                            multi_strategy._last_buy_cycle = multi_strategy._cycle_count
+                        elif trade_action == "SELL":
+                            multi_strategy._consecutive_buys = 0
+                            multi_strategy._last_sell_cycle = multi_strategy._cycle_count
+                        multi_strategy._last_committed_score = trade_score
+                        multi_strategy._last_committed_regime = trade_regime_str
+
+                        # Patch AI Decision state for dashboard
+                        dec = _state.get("last_decision") or {}
+                        probe_label = trade_entry_type.replace("_", " ")
+                        dec["action"] = trade_action
+                        dec["reasoning"] = (
+                            f"{probe_label} ({trade_strategy}): "
+                            + (trade_reasons[-1] if trade_reasons else "probe entry")
+                        )
+                        dec["why"] = dec.get("why", []) + [
+                            f"Strategy {trade_strategy} fired {probe_label}",
+                        ] + trade_reasons[:2]
+                        if trade_action == "BUY":
+                            dec["score"] = min(100, dec.get("score", 50) + 7)
+                        elif trade_action == "SELL":
+                            dec["score"] = max(0, dec.get("score", 50) - 7)
+                        dec["position_size"] = pos_size
+                        dec["confidence"] = max(dec.get("confidence", 0), 0.30)
+                        _state["last_decision"] = dec
+
+                        # Track committed trade for debug
+                        _state["committed_trade"] = {
+                            "action": trade_action,
+                            "strategy": trade_strategy,
+                            "entry_type": trade_entry_type,
+                            "quantity": probe_result["quantity"],
+                            "price": price,
+                            "pos_size_pct": pos_size,
+                            "cash_after": portfolio["cash"],
+                            "btc_after": portfolio["btc_holdings"],
+                        }
+
+                        # Update session counters
+                        _state["session_trades_taken"] += 1
+                        if trade_action == "BUY":
+                            _state["session_buys"] += 1
+                        elif trade_action == "SELL":
+                            _state["session_sells"] += 1
+
+                        print(f"[execution] COMMITTED {trade_entry_type} {trade_action} "
+                              f"from {trade_strategy}: qty={probe_result['quantity']:.8f} BTC "
+                              f"cash={portfolio['cash']:.2f} btc={portfolio['btc_holdings']:.8f}")
 
     except Exception as e:
         import traceback
