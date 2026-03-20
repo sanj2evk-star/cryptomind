@@ -810,7 +810,6 @@ for _candidate in _frontend_candidates:
 
 if _frontend_dir:
     _index_html = _frontend_dir / "index.html"
-    _index_bytes = _index_html.read_bytes()
 
     # Known SPA routes that collide with API endpoints
     _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard"}
@@ -823,6 +822,7 @@ if _frontend_dir:
         2. Accept text/html (browser navigation, not API calls)
 
         API calls (fetch with Accept: application/json) pass through normally.
+        Always reads index.html fresh from disk to avoid stale cache issues.
         """
         async def dispatch(self, request, call_next):
             if (
@@ -830,9 +830,16 @@ if _frontend_dir:
                 and request.url.path in _SPA_PATHS
                 and "text/html" in request.headers.get("accept", "")
             ):
+                # Always read fresh — never cache index.html bytes
+                fresh_bytes = _index_html.read_bytes()
                 return StarletteResponse(
-                    content=_index_bytes,
+                    content=fresh_bytes,
                     media_type="text/html",
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
+                    },
                 )
             return await call_next(request)
 

@@ -1,8 +1,8 @@
 {
   "admin": {
     "display_name": "Admin",
-    "password_hash": "2b8193a22f1024972a818c062bdb9084b4fd3b645a68e9d08cf8bc267a0f1dba",
-    "salt": "cf3443aed54fa0b2b5f58d05bd2f704f",
-    "created_at": "2026-03-18T16:54:01.289270+00:00"
+    "password_hash": "913247a90e2c30eef33c0a65b707283e3e633fd777099fb1e7a7ba48f8e2cbc8",
+    "salt": "9045983bd3e72021a022d5417504c1da",
+    "created_at": "2026-03-20T08:43:18.082310+00:00"
   }
 }

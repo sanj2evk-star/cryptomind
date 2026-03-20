@@ -349,7 +349,19 @@ async function loadApp() {
 
 app.setName(APP_NAME);
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Clear all cached data to ensure fresh assets load
+  const { session } = require("electron");
+  try {
+    await session.defaultSession.clearCache();
+    await session.defaultSession.clearStorageData({
+      storages: ["serviceworkers", "cachestorage"],
+    });
+    log("Cleared Electron cache + service workers");
+  } catch (e) {
+    log(`Cache clear warning: ${e.message}`);
+  }
+
   createWindow();
   loadApp();
   app.on("activate", () => {
