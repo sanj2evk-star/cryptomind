@@ -669,6 +669,51 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
             reasons.append(f"Probe BUY: {' + '.join(break_reasons[:3])}")
 
     # ══════════════════════════════════════════════════════════
+    # TREND PROBE — unified early trend detection module
+    # Fires for ANY strategy: price > EMA, RSI 52-68, higher lows, vol ok
+    # Only 1 trend_probe per direction per cycle, 3% position
+    # ══════════════════════════════════════════════════════════
+    if (action == "HOLD" and btc < 0.0001 and available_cash > 0.3
+            and _probe_this_cycle != _cycle_count and not regime_blocked):
+        # Guard: skip if accel strongly negative
+        # Guard: skip if price extended far from EMA (>1.5% above)
+        ema_dist_pct = (price - ema_long) / ema_long * 100 if ema_long > 0 else 0
+        accel_ok = accel > -3  # not strongly negative
+        not_extended = ema_dist_pct < 1.5
+        price_above_ema = ema_short > ema_long
+        rsi_in_range = 52 <= rsi <= 68
+        # Check short-term higher lows (3-5 candles)
+        ph = trader_state.get("price_history", [])
+        recent = ph[-5:] if len(ph) >= 5 else ph
+        higher_lows = False
+        if len(recent) >= 3:
+            lows = recent[-3:]  # last 3 prices as proxy for lows
+            higher_lows = all(lows[i] >= lows[i - 1] for i in range(1, len(lows)))
+        # Volatility: low or rising (not crashing)
+        vol_ok = vol < 0.002 or accel > 0  # low vol or improving
+
+        # Guard: don't stack if already trend_probed this direction in this regime
+        already_probed = s.get("_trend_probe_regime", "") == regime
+
+        if (price_above_ema and rsi_in_range and higher_lows and vol_ok
+                and accel_ok and not_extended and not already_probed):
+            action = "BUY"
+            is_probe = True
+            entry_met = True
+            _probe_this_cycle = _cycle_count
+            s["_trend_probe_regime"] = regime  # mark: no stacking until regime shift
+            reasons.append(
+                f"trend_probe: EMA+, RSI={rsi:.0f}, higher lows, "
+                f"vol={vol:.5f}, accel={accel:.1f}"
+            )
+
+    # Reset trend_probe stacking guard on regime change
+    prev_regime_tp = s.get("_prev_regime_tp", regime)
+    if prev_regime_tp != regime:
+        s["_trend_probe_regime"] = ""  # allow new trend_probe after regime shift
+    s["_prev_regime_tp"] = regime
+
+    # ══════════════════════════════════════════════════════════
     # SLEEPING REGIME PROBE — price breaks local high + accel + RSI confirm
     # Allows ANY strategy to probe in SLEEPING if price breaks recent high
     # ══════════════════════════════════════════════════════════
@@ -733,8 +778,13 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     # ── Execute against GLOBAL portfolio ──
     pnl = 0.0
     if action == "BUY":
-        # Probe entries use smaller position (5% instead of normal)
-        pos_pct = 0.05 if is_probe else profile["position_pct"]
+        # Probe entries use smaller position (trend_probe=3%, other probes=5%)
+        if is_probe and "trend_probe" in (reasons[-1] if reasons else ""):
+            pos_pct = 0.03
+        elif is_probe:
+            pos_pct = 0.05
+        else:
+            pos_pct = profile["position_pct"]
         spend = available_cash * pos_pct
         spend = min(spend, _portfolio["total_cash"] * 0.3)  # cap at 30% of total cash per trade
         spend = min(spend, _portfolio["total_cash"] - 1.0)  # keep $1 reserve
@@ -802,7 +852,7 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
             "pnl": round(pnl, 6), "score": total_score,
             "confidence": confidence, "market_state": mkt,
             "strategy": name,
-            "entry_type": "probe" if is_probe else "full",
+            "entry_type": ("trend_probe" if is_probe and "trend_probe" in (reasons[0] if reasons else "") else "probe") if is_probe else "full",
             "hold_zone_adj": hold_zone_adj,
             "indicators": {
                 "rsi": round(indicators.get("rsi", 0), 1),
