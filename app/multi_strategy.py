@@ -69,7 +69,7 @@ _portfolio = {
 _strategies: dict[str, dict] = {}
 _leaderboard: list[dict] = []
 _cycle_count = 0
-_probe_this_cycle = 0  # track: only 1 probe entry per cycle
+_probe_this_cycle = -1  # track: only 1 probe entry per cycle
 _last_market_state = {"state": "SLEEPING", "confidence_score": 0, "reason": ""}
 _primary_strategy = "HUNTER"
 _last_switch_cycle = 0
@@ -426,6 +426,7 @@ def _check_kill_revive(price: float):
 
 def _run_strategy(name: str, indicators: dict, market_state: dict, price: float) -> dict:
     """Run decision + execution for one strategy."""
+    global _probe_this_cycle
     s = _strategies[name]
     profile = PROFILES[name]
     mkt = market_state["state"]
@@ -443,8 +444,11 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
         return {"action": "HOLD", "pnl": 0.0}
 
     # Regime filter — check if this strategy trades in current regime
+    # (SLEEPING blocked strategies can still fire the SLEEPING probe below)
     allowed_regimes = profile.get("regimes", ["WAKING_UP", "ACTIVE", "BREAKOUT"])
-    if mkt not in allowed_regimes:
+    regime_blocked = mkt not in allowed_regimes
+    if regime_blocked and mkt != "SLEEPING":
+        # Non-SLEEPING regime mismatch → hard block
         s["last_action"] = "HOLD"
         s["last_reason"] = f"Regime {mkt} — not active"
         return {"action": "HOLD", "pnl": 0.0}
@@ -485,9 +489,12 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
 
     # ══════════════════════════════════════════════════════════
     # STRATEGY-NATIVE ENTRY LOGIC (each strategy decides independently)
+    # Skip if strategy is regime-blocked (SLEEPING probe handled separately below)
     # ══════════════════════════════════════════════════════════
 
-    if name == "SCALPER":
+    if regime_blocked:
+        pass  # skip native entry — only SLEEPING probe can fire below
+    elif name == "SCALPER":
         # Scalper: micro movements — EMA spread expansion OR momentum flip
         ema_spread = abs(ema_short - ema_long) / ema_long * 100 if ema_long > 0 else 0
         mom_positive = momentum > 0 and accel > 2
@@ -651,7 +658,6 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
             pass
 
         # Limit: only 1 strategy can probe per cycle (prevent all triggering at once)
-        global _probe_this_cycle
         cycle_key = _cycle_count
 
         # Probe entry: need 2.0+ improving signals + regime safe
@@ -661,6 +667,28 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
             entry_met = True
             _probe_this_cycle = cycle_key  # mark: one probe per cycle
             reasons.append(f"Probe BUY: {' + '.join(break_reasons[:3])}")
+
+    # ══════════════════════════════════════════════════════════
+    # SLEEPING REGIME PROBE — price breaks local high + accel + RSI confirm
+    # Allows ANY strategy to probe in SLEEPING if price breaks recent high
+    # ══════════════════════════════════════════════════════════
+    if (action == "HOLD" and regime == "SLEEPING" and btc < 0.0001
+            and available_cash > 0.3 and _probe_this_cycle != _cycle_count):
+        # Check: price breaks recent local high (short window)
+        ph = trader_state.get("price_history", [])
+        window = ph[-20:] if len(ph) >= 20 else ph
+        if len(window) >= 5:
+            local_high = max(window[:-1])  # highest in window excluding current
+            current_price = window[-1]
+            if current_price > local_high and accel > 0 and rsi > 55:
+                action = "BUY"
+                is_probe = True
+                entry_met = True
+                _probe_this_cycle = _cycle_count
+                reasons.append(
+                    f"SLEEPING probe: price {current_price:.0f} > local high {local_high:.0f}, "
+                    f"accel={accel:.1f}, RSI={rsi:.0f}"
+                )
 
     # Log why NOT trading (for debugging)
     if action == "HOLD" and not entry_met:
@@ -673,8 +701,8 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
             hold_reason.append(f"accel={accel:.1f}")
         reasons.append("No entry: " + ", ".join(hold_reason))
 
-    # Confidence filter — only for conservative strategies
-    if action != "HOLD" and name in ("MONK", "DEFENSIVE") and confidence < profile["min_confidence"]:
+    # Confidence filter — only for conservative strategies (probes bypass this)
+    if action != "HOLD" and not is_probe and name in ("MONK", "DEFENSIVE") and confidence < profile["min_confidence"]:
         action = "HOLD"
         reasons.append(f"Low confidence ({confidence:.0%})")
 
