@@ -50,11 +50,12 @@ MAX_ALLOC_PCT = 0.35        # 35% maximum
 SWITCH_COOLDOWN = 60        # cycles between primary strategy switches
 SWITCH_MARGIN = 2.0         # must outperform by 2% to switch
 MIN_TRADES_FOR_SWITCH = 5
-KILL_DRAWDOWN = 10.0
+KILL_DRAWDOWN = 12.0            # softened: was 10%
 KILL_CONSEC_LOSSES = 5
-KILL_MIN_WINRATE_TRADES = 10
+KILL_MIN_WINRATE_TRADES = 15    # softened: was 10
 KILL_MIN_WINRATE = 30.0
 REVIVE_COOLDOWN = 120
+MIN_ACTIVE_STRATEGIES = 3       # guarantee at least 3 active
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PORTFOLIO EXPOSURE BRAIN — regime-aware exposure caps
@@ -74,11 +75,22 @@ SIZE_REDUCTION_FACTOR = 0.5 # cut new buy size by 50% when >50% exposed
 # MINIMUM EDGE FILTER — reject low-quality trades
 # ═══════════════════════════════════════════════════════════════════════════
 MIN_EDGE_BY_REGIME = {
-    "SLEEPING":   {"min_score": 58, "min_confidence": 0.15},
-    "WAKING_UP":  {"min_score": 52, "min_confidence": 0.08},
-    "ACTIVE":     {"min_score": 48, "min_confidence": 0.05},
-    "BREAKOUT":   {"min_score": 45, "min_confidence": 0.03},
+    "SLEEPING":   {"min_score": 56, "min_confidence": 0.12},   # relaxed from 58/0.15
+    "WAKING_UP":  {"min_score": 50, "min_confidence": 0.06},   # relaxed from 52/0.08
+    "ACTIVE":     {"min_score": 48, "min_confidence": 0.05},   # unchanged
+    "BREAKOUT":   {"min_score": 45, "min_confidence": 0.03},   # unchanged
 }
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROBE LAYER — controlled exploration independent of edge filter
+# ═══════════════════════════════════════════════════════════════════════════
+PROBE_MIN_SCORE = 48            # lower bar than edge filter
+PROBE_MIN_CONFIDENCE = 0.05    # 5%
+PROBE_SIZE_FRACTION = 0.25     # 25% of normal position size
+PROBE_COOLDOWN_CYCLES = 3      # max 1 probe per 3 cycles
+PROBE_MAX_EXPOSURE = 0.50      # disable probes above 50% exposure
+HOLD_LOOP_BREAKER_CYCLES = 20  # force micro-probe after 20 consecutive HOLDs
+HOLD_LOOP_PROBE_SIZE = 0.10    # 10% of normal size for forced probe
 
 # ═══════════════════════════════════════════════════════════════════════════
 # RE-ENTRY / STACKING DISCIPLINE
@@ -126,6 +138,12 @@ _exposure_cap_active = ""
 _blocked_trade_reason = ""
 _market_quality_score = 0
 _strategy_performance: dict[str, dict] = {}  # adaptive weighting data
+
+# Probe layer state
+_last_probe_cycle = -10          # last cycle a probe was allowed
+_probe_trades_count = 0          # total probes fired
+_consecutive_hold_cycles = 0     # for hold-loop breaker
+_blocked_reason_log: list[str] = []  # recent blocked reasons for debug
 
 
 def _log_event(event: str, **kwargs):
@@ -407,14 +425,28 @@ def kill_strategy(name: str) -> dict:
 
 
 def _redistribute_allocation():
-    """Redistribute capital among active strategies only."""
+    """Redistribute capital among active strategies only.
+    PROBATION strategies get 25% of normal share."""
     global _allocations
     active = [n for n in PROFILES if _strategies[n]["status"] not in ("INACTIVE", "PAUSED")]
+    probation = [n for n in active if _strategies[n]["status"] == "PROBATION"]
+    full_active = [n for n in active if n not in probation]
     if not active:
         _allocations = {n: 0.0 for n in PROFILES}
         return
-    share = 1.0 / len(active)
-    _allocations = {n: (share if n in active else 0.0) for n in PROFILES}
+    # Full active get 1 share, probation get 0.25 share
+    total_shares = len(full_active) + len(probation) * 0.25
+    if total_shares <= 0:
+        total_shares = 1
+    full_share = 1.0 / total_shares
+    _allocations = {}
+    for n in PROFILES:
+        if n in probation:
+            _allocations[n] = full_share * 0.25
+        elif n in full_active:
+            _allocations[n] = full_share
+        else:
+            _allocations[n] = 0.0
 
 
 def _force_switch_primary():
@@ -568,27 +600,49 @@ def _check_kill_revive(price: float):
     for name, s in _strategies.items():
         p = _get_performance(name, price)
 
-        # --- KILL checks (only active strategies) ---
+        # --- KILL checks (only active/leading strategies) ---
+        # v5.1: Softened — requires BOTH drawdown AND min trades before killing.
+        # First demotion goes to PROBATION (runs at 25% size), then INACTIVE.
         if s["status"] in ("ACTIVE", "LEADING"):
-            killed = False
+            should_demote = False
             reason = ""
 
-            if p["drawdown"] > KILL_DRAWDOWN:
-                killed = True
-                reason = f"Drawdown {p['drawdown']:.1f}% > {KILL_DRAWDOWN}%"
+            # Drawdown kill: requires minimum trade count too
+            if p["drawdown"] > KILL_DRAWDOWN and p["trade_count"] >= KILL_MIN_WINRATE_TRADES:
+                should_demote = True
+                reason = f"Drawdown {p['drawdown']:.1f}% > {KILL_DRAWDOWN}% (trades={p['trade_count']})"
             elif p["consecutive_losses"] >= KILL_CONSEC_LOSSES:
-                killed = True
+                should_demote = True
                 reason = f"{p['consecutive_losses']} consecutive losses"
             elif p["trade_count"] >= KILL_MIN_WINRATE_TRADES and p["win_rate"] < KILL_MIN_WINRATE:
-                killed = True
+                should_demote = True
                 reason = f"Win rate {p['win_rate']:.0f}% < {KILL_MIN_WINRATE}%"
 
-            if killed:
-                s["status"] = "INACTIVE"
-                s["killed_at_cycle"] = _cycle_count
-                _log_event("strategy_killed", strategy=name, reason=reason)
-                if name == _primary_strategy:
-                    _force_switch_primary()
+            if should_demote:
+                # First: reduce allocation by 50% and put on PROBATION
+                if s["status"] != "PROBATION":
+                    s["status"] = "PROBATION"
+                    s["probation_cycle"] = _cycle_count
+                    if name in _allocations:
+                        _allocations[name] *= 0.5
+                    _log_event("strategy_probation", strategy=name, reason=reason)
+                # If already on probation for 30+ cycles and still failing → kill
+                elif _cycle_count - s.get("probation_cycle", 0) > 30:
+                    s["status"] = "INACTIVE"
+                    s["killed_at_cycle"] = _cycle_count
+                    _log_event("strategy_killed", strategy=name,
+                               reason=f"Failed probation: {reason}")
+                    if name == _primary_strategy:
+                        _force_switch_primary()
+
+        # --- PROBATION recovery: if performance improves, restore to ACTIVE ---
+        elif s["status"] == "PROBATION":
+            p = _get_performance(name, price)
+            cycles_on_probation = _cycle_count - s.get("probation_cycle", 0)
+            if p["consecutive_losses"] == 0 and cycles_on_probation > 10:
+                s["status"] = "ACTIVE"
+                _log_event("strategy_recovered", strategy=name,
+                           reason=f"Recovered from probation after {cycles_on_probation} cycles")
 
         # --- REVIVE checks (only auto-killed, not manually paused) ---
         elif s["status"] == "INACTIVE" and s.get("killed_at_cycle", 0) > 0:
@@ -650,6 +704,32 @@ def _check_kill_revive(price: float):
 
         s["_prev_market"] = _last_market_state.get("state", "SLEEPING")
 
+    # ── MIN ACTIVE STRATEGIES GUARANTEE ──
+    # If fewer than MIN_ACTIVE_STRATEGIES are active, force-revive the best killed ones
+    active_count = sum(1 for n, st in _strategies.items()
+                       if st["status"] in ("ACTIVE", "LEADING", "PROBATION"))
+    if active_count < MIN_ACTIVE_STRATEGIES:
+        # Find best killed strategies by recent performance or regime fit
+        mkt = _last_market_state.get("state", "SLEEPING")
+        killed = [(n, s) for n, s in _strategies.items() if s["status"] == "INACTIVE"]
+        # Score them: prefer regime fit + lower drawdown
+        scored = []
+        for n, s in killed:
+            profile = PROFILES.get(n, {})
+            regime_fit = 1.0 if mkt in profile.get("regimes", []) else 0.0
+            dd_score = 1.0 - min(s["max_drawdown"] / 20, 1.0)
+            scored.append((n, regime_fit * 0.6 + dd_score * 0.4))
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        revive_count = MIN_ACTIVE_STRATEGIES - active_count
+        for n, _ in scored[:revive_count]:
+            _strategies[n]["status"] = "ACTIVE"
+            _strategies[n]["consecutive_losses"] = 0
+            _strategies[n]["last_revive_cycle"] = _cycle_count
+            _allocations[n] = 0.05
+            _log_event("strategy_force_revived", strategy=n,
+                       reason=f"Min active guarantee ({active_count} < {MIN_ACTIVE_STRATEGIES})")
+
 
 # ---------------------------------------------------------------------------
 # Per-Strategy Decision + Execution
@@ -657,7 +737,7 @@ def _check_kill_revive(price: float):
 
 def _run_strategy(name: str, indicators: dict, market_state: dict, price: float) -> dict:
     """Run decision + execution for one strategy."""
-    global _probe_this_cycle, _last_any_trade_cycle
+    global _probe_this_cycle, _last_any_trade_cycle, _probe_trades_count, _last_probe_cycle
     s = _strategies[name]
     profile = PROFILES[name]
     mkt = market_state["state"]
@@ -1040,12 +1120,41 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     # ══════════════════════════════════════════════════════════
     if action != "HOLD" and not is_probe:
         edge_req = MIN_EDGE_BY_REGIME.get(regime, MIN_EDGE_BY_REGIME["SLEEPING"])
+        edge_blocked = False
         if action == "BUY" and total_score < edge_req["min_score"]:
-            action = "HOLD"
-            reasons.append(f"Edge filter: score {total_score:.0f} < {edge_req['min_score']} for {regime}")
+            edge_blocked = True
+            edge_block_reason = f"Edge filter: score {total_score:.0f} < {edge_req['min_score']} for {regime}"
         elif action != "HOLD" and confidence < edge_req["min_confidence"]:
-            action = "HOLD"
-            reasons.append(f"Edge filter: conf {confidence:.0%} < {edge_req['min_confidence']:.0%} for {regime}")
+            edge_blocked = True
+            edge_block_reason = f"Edge filter: conf {confidence:.0%} < {edge_req['min_confidence']:.0%} for {regime}"
+
+        if edge_blocked:
+            # ── PROBE LAYER: controlled exploration bypasses edge filter ──
+            # Allows participation when signal exists but doesn't meet full threshold
+            exposure = _get_exposure_pct(price)
+            probe_cooldown_ok = (_cycle_count - _last_probe_cycle) >= PROBE_COOLDOWN_CYCLES
+            probe_conditions = (
+                action == "BUY"
+                and total_score >= PROBE_MIN_SCORE
+                and confidence >= PROBE_MIN_CONFIDENCE
+                and exposure < PROBE_MAX_EXPOSURE * 100
+                and probe_cooldown_ok
+                and _probe_this_cycle != _cycle_count
+            )
+            if probe_conditions:
+                is_probe = True
+                entry_met = True
+                reasons.append(f"Probe layer: score={total_score:.0f} conf={confidence:.0%} "
+                              f"(below edge but above probe threshold)")
+            else:
+                action = "HOLD"
+                reasons.append(edge_block_reason)
+                if not probe_cooldown_ok:
+                    _blocked_reason_log.append("probe_cooldown")
+                elif exposure >= PROBE_MAX_EXPOSURE * 100:
+                    _blocked_reason_log.append("probe_exposure_cap")
+                else:
+                    _blocked_reason_log.append("edge_filter")
 
     # Store entry condition status
     s["entry_condition_met"] = entry_met
@@ -1092,13 +1201,35 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
         else:
             size_multiplier *= 0.6  # reduce size by 40% in sleeping market
 
+    # ══════════════════════════════════════════════════════════
+    # MARKET QUALITY INTEGRATION — use _market_quality_score
+    # ══════════════════════════════════════════════════════════
+    if action == "BUY" and not is_probe:
+        if _market_quality_score < 40:
+            # Very poor quality — convert to probe if possible
+            is_probe = True
+            reasons.append(f"Quality downgrade: mkt_quality={_market_quality_score}")
+        elif _market_quality_score < 60:
+            # Low quality — allow probes, reduce full size by 30%
+            size_multiplier *= 0.70
+            reasons.append(f"Quality size reduction: mkt_quality={_market_quality_score}")
+        elif _market_quality_score > 70:
+            # Good quality — allow slightly larger entries
+            size_multiplier *= 1.15
+            reasons.append(f"Quality boost: mkt_quality={_market_quality_score}")
+
     # ── Execute against GLOBAL portfolio ──
     pnl = 0.0
     if action == "BUY":
-        # Probe entries use smaller position (trend_probe=3%, other probes=5%)
-        last_reason = reasons[-1] if reasons else ""
+        # Probe entries use smaller position
+        last_reason = " ".join(reasons[-3:]) if reasons else ""
         if is_probe and ("trend_probe" in last_reason or "exploratory" in last_reason):
             pos_pct = 0.03
+        elif is_probe and "Probe layer" in last_reason:
+            # Edge-filter probe: 25% of normal size
+            pos_pct = profile["position_pct"] * PROBE_SIZE_FRACTION
+        elif is_probe and "Quality downgrade" in last_reason:
+            pos_pct = profile["position_pct"] * PROBE_SIZE_FRACTION
         elif is_probe:
             pos_pct = 0.05
         else:
@@ -1181,6 +1312,9 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     # Trade log with full context + export to _cycle_trades for dashboard sync
     if action != "HOLD":
         _last_any_trade_cycle = _cycle_count  # anti-paralysis tracker
+        if is_probe:
+            _probe_trades_count += 1
+            _last_probe_cycle = _cycle_count
 
         trade_record = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1214,6 +1348,7 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
 def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
     global _cycle_count, _last_market_state, _leaderboard, _prev_volatility, _cycle_trades
     global _market_quality_score, _current_exposure_pct, _blocked_trade_reason
+    global _consecutive_hold_cycles, _probe_trades_count, _last_probe_cycle, _last_any_trade_cycle
 
     _ensure_initialized()
 
@@ -1239,10 +1374,70 @@ def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
 
     # Clear cycle trades before running strategies
     _cycle_trades = []
+    # Trim blocked reason log
+    if len(_blocked_reason_log) > 100:
+        _blocked_reason_log[:] = _blocked_reason_log[-100:]
 
     # Run all strategies
     for name in PROFILES:
         _run_strategy(name, indicators, mkt, price)
+
+    # ── HOLD LOOP BREAKER: force micro-probe after prolonged HOLD ──
+    if not _cycle_trades:
+        _consecutive_hold_cycles += 1
+    else:
+        _consecutive_hold_cycles = 0
+
+    if (_consecutive_hold_cycles >= HOLD_LOOP_BREAKER_CYCLES
+            and _probe_this_cycle != _cycle_count):
+        # Find ANY active strategy with cash available
+        ema_short = indicators.get("ema_short", 0)
+        ema_long = indicators.get("ema_long", 0)
+        rsi = indicators.get("rsi", 50)
+        accel = indicators.get("acceleration", 0)
+        # Basic sanity: price not crashing, RSI not extreme overbought
+        sanity = (rsi < 75 and accel > -10 and _portfolio["total_cash"] > 2.0)
+        if sanity:
+            for sname in PROFILES:
+                s = _strategies[sname]
+                if s["status"] in ("ACTIVE", "LEADING") and s["btc_holdings"] < 0.0001:
+                    profile = PROFILES[sname]
+                    pos_pct = profile["position_pct"] * HOLD_LOOP_PROBE_SIZE
+                    spend = _portfolio["total_cash"] * _allocations.get(sname, 0.1) * pos_pct
+                    spend = min(spend, _portfolio["total_cash"] * 0.05)  # hard cap 5%
+                    if spend >= 0.1:
+                        qty = spend / price
+                        _portfolio["total_cash"] -= spend
+                        s["btc_holdings"] += qty
+                        s["entry_price"] = price
+                        s["cash_used"] = spend
+                        s["total_trades"] += 1
+                        s["last_trade_time"] = time.time()
+                        _probe_trades_count += 1
+                        _last_probe_cycle = _cycle_count
+                        _consecutive_hold_cycles = 0
+                        _last_any_trade_cycle = _cycle_count
+                        trade_record = {
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "action": "BUY", "price": round(price, 2),
+                            "pnl": 0, "score": 0, "confidence": 0,
+                            "market_state": mkt, "strategy": sname,
+                            "entry_type": "hold_loop_probe",
+                            "hold_zone_adj": 0,
+                            "indicators": {"rsi": round(rsi, 1)},
+                            "reasons": [f"Hold loop breaker: {_consecutive_hold_cycles} "
+                                       f"consecutive HOLDs, micro-probe ${spend:.2f}"],
+                        }
+                        s["trade_history"].append(trade_record)
+                        if len(s["trade_history"]) > 100:
+                            s["trade_history"] = s["trade_history"][-100:]
+                        _cycle_trades.append(trade_record)
+                        _log_event("hold_loop_probe", strategy=sname,
+                                   hold_cycles=HOLD_LOOP_BREAKER_CYCLES,
+                                   spend=round(spend, 2))
+                        print(f"[hold_loop] BREAKER fired for {sname}: "
+                              f"${spend:.2f} after {HOLD_LOOP_BREAKER_CYCLES} HOLDs")
+                        break  # only 1 hold-loop probe per cycle
 
     # Update prev_volatility AFTER strategies run (so next cycle sees this cycle's vol)
     _prev_volatility = indicators.get("volatility", 0)

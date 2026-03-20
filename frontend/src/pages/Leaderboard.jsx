@@ -13,10 +13,11 @@ function Medal({ rank }) {
 /* Status badge with colors for all states */
 function StatusBadge({ status }) {
   const cfg = {
-    LEADING:  { bg: "#eab30822", color: "#eab308", label: "★ LEADING" },
-    ACTIVE:   { bg: "#22c55e22", color: "#22c55e", label: "ACTIVE" },
-    PAUSED:   { bg: "#f59e0b22", color: "#f59e0b", label: "⏸ PAUSED" },
-    INACTIVE: { bg: "#ef444422", color: "#ef4444", label: "☠ KILLED" },
+    LEADING:    { bg: "#eab30822", color: "#eab308", label: "★ LEADING" },
+    ACTIVE:     { bg: "#22c55e22", color: "#22c55e", label: "ACTIVE" },
+    PROBATION:  { bg: "#f97316aa", color: "#fb923c", label: "⚠ PROBATION" },
+    PAUSED:     { bg: "#f59e0b22", color: "#f59e0b", label: "⏸ PAUSED" },
+    INACTIVE:   { bg: "#ef444422", color: "#ef4444", label: "☠ KILLED" },
   };
   const c = cfg[status] || cfg.ACTIVE;
   return (
@@ -44,7 +45,7 @@ function StrategyControls({ name, status, onAction }) {
 
   return (
     <div style={{ display: "flex", gap: 3 }}>
-      {status === "ACTIVE" || status === "LEADING" ? (
+      {status === "ACTIVE" || status === "LEADING" || status === "PROBATION" ? (
         <>
           <button onClick={() => act("pause")} style={btnStyle("#f59e0b")}>Pause</button>
           <button onClick={() => act("kill")} style={btnStyle("#ef4444")}>Kill</button>
@@ -82,7 +83,7 @@ export default function Leaderboard() {
   const events = data?.event_log || [];
 
   const gp = data?.global_portfolio || {};
-  const activeCount = board.filter(s => s.status === "ACTIVE" || s.status === "LEADING").length;
+  const activeCount = board.filter(s => s.status === "ACTIVE" || s.status === "LEADING" || s.status === "PROBATION").length;
   const totalStrategies = board.length;
 
   return (

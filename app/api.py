@@ -442,10 +442,22 @@ def debug_state():
             "last_committed_score": multi_strategy._last_committed_score,
             "last_committed_regime": multi_strategy._last_committed_regime,
         }
+        ms_probe_count = multi_strategy._probe_trades_count
+        ms_hold_cycles = multi_strategy._consecutive_hold_cycles
+        ms_strategy_status = {
+            n: s["status"] for n, s in multi_strategy._strategies.items()
+        } if multi_strategy._strategies else {}
+        # Count blocked reasons
+        reason_freq = {}
+        for r in multi_strategy._blocked_reason_log[-50:]:
+            reason_freq[r] = reason_freq.get(r, 0) + 1
+        ms_blocked_freq = reason_freq
     except Exception:
         ms_trades, ms_idle, ms_prev_vol = [], 0, 0
         ms_exposure, ms_exposure_cap, ms_blocked, ms_quality = 0, "", "", 0
         ms_perf, ms_reentry = {}, {}
+        ms_probe_count, ms_hold_cycles = 0, 0
+        ms_strategy_status, ms_blocked_freq = {}, {}
 
     return {
         "price": state.get("last_price", 0),
@@ -494,6 +506,11 @@ def debug_state():
         "market_quality_score": ms_quality,
         "strategy_performance_summary": ms_perf,
         "reentry_state": ms_reentry,
+        # ── v5.1: Probe & Hold Loop Debug ──
+        "probe_trades_count": ms_probe_count,
+        "consecutive_hold_cycles": ms_hold_cycles,
+        "strategy_status": ms_strategy_status,
+        "last_blocked_reason_frequency": ms_blocked_freq,
     }
 
 
