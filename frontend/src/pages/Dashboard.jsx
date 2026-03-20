@@ -313,7 +313,7 @@ export default function Dashboard() {
         {[
           { label: "BTC", value: fmtPrice(price) },
           { label: "Equity", value: fmt(equity) },
-          { label: "P&L", value: fmt(totalPnl), color: totalPnl >= 0 ? "var(--green)" : "var(--red)" },
+          { label: "P&L", value: `${totalPnl < 0 ? "▼ " : totalPnl > 0 ? "▲ " : ""}${fmt(totalPnl)}`, color: totalPnl >= 0 ? "var(--green)" : "var(--red)", fontWeight: totalPnl < 0 ? 700 : 600 },
           { label: "Trades", value: totalTrades },
           { label: "Cash", value: fmt(cash) },
           { label: "BTC Held", value: btc.toFixed(6) },
@@ -421,7 +421,7 @@ export default function Dashboard() {
           <InlineMetric label="Cash" value={fmt(cash)} />
           <InlineMetric label="BTC" value={btc.toFixed(6)} />
           <InlineMetric label="Avg Entry" value={avgEntry > 0 ? fmtPrice(avgEntry) : "—"} />
-          <InlineMetric label="Unrealized" value={fmt(unrealizedPnl)} color={unrealizedPnl >= 0 ? "var(--green)" : "var(--red)"} />
+          <InlineMetric label="Unrealized" value={`${unrealizedPnl < 0 ? "▼ " : unrealizedPnl > 0 ? "▲ " : ""}${fmt(unrealizedPnl)}`} color={unrealizedPnl >= 0 ? "var(--green)" : "var(--red)"} />
           <div style={{ borderTop: "1px solid var(--border)", marginTop: 5, paddingTop: 5 }}>
             <InlineMetric label="Cooldown" value={cooldown > 0 ? `${cooldown}s` : "Ready"} color={cooldown > 0 ? "var(--red)" : "var(--green)"} />
           </div>
@@ -594,7 +594,9 @@ export default function Dashboard() {
                             </span>
                           ) : "—"}
                         </td>
-                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px", color: pnl >= 0 ? "var(--green)" : "var(--red)" }}>{fmt(pnl)}</td>
+                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px", color: pnl >= 0 ? "var(--green)" : "var(--red)", fontWeight: pnl < 0 ? 700 : 400 }}>
+                          {pnl < 0 && "▼ "}{pnl > 0 && "▲ "}{fmt(pnl)}
+                        </td>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{t.score ?? "—"}</td>
                       </tr>
                     );

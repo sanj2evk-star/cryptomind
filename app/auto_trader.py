@@ -843,35 +843,57 @@ def execute_trade(decision: dict, portfolio: dict) -> dict:
 # Logging
 # ---------------------------------------------------------------------------
 
-AUTO_TRADE_FIELDS = ["timestamp", "action", "price", "quantity", "pnl", "cash_after", "btc_after", "confidence", "score", "signals"]
+AUTO_TRADE_FIELDS = [
+    "timestamp", "action", "price", "quantity", "dollar_size", "pnl",
+    "cash_after", "btc_after", "confidence", "score",
+    "strategy", "regime", "entry_type", "reason", "signals",
+]
 AUTO_EQUITY_FIELDS = ["timestamp", "price", "cash", "btc_holdings", "total_equity"]
 
 
-def log_auto_trade(user_id: str, decision: dict, result: dict, portfolio: dict) -> None:
-    """Append a trade to auto_trades.csv."""
+def log_auto_trade(user_id: str, decision: dict, result: dict, portfolio: dict,
+                   strategy: str = "", regime: str = "", entry_type: str = "full",
+                   reason: str = "") -> None:
+    """Append a trade to auto_trades.csv — the SINGLE source of truth for trade history.
+
+    New fields (v6): strategy, regime, entry_type, reason, dollar_size.
+    Backward-compatible: old rows with missing fields still load fine.
+    """
     path = get_user_file(user_id, "auto_trades.csv")
-    if not path.exists():
+    write_header = not path.exists()
+
+    # If file exists but has old header, we still append — DictWriter handles missing fields gracefully
+    if write_header:
         with open(path, "w", newline="") as f:
             csv.DictWriter(f, fieldnames=AUTO_TRADE_FIELDS).writeheader()
 
     signals = decision.get("signals", {})
     signals_str = f"ema:{signals.get('ema',0)}|rsi:{signals.get('rsi',0)}|trend:{signals.get('trend',0)}"
+    qty = round(result.get("quantity", 0), 8)
+    price = decision.get("price", 0)
+    dollar_size = round(qty * price, 4)
 
     row = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "action": result["action"],
-        "price": decision["price"],
-        "quantity": round(result["quantity"], 8),
-        "pnl": round(result["pnl"], 6),
+        "price": price,
+        "quantity": qty,
+        "dollar_size": dollar_size,
+        "pnl": round(result.get("pnl", 0), 6),
         "cash_after": round(portfolio["cash"], 4),
         "btc_after": round(portfolio["btc_holdings"], 8),
-        "confidence": decision["confidence"],
+        "confidence": decision.get("confidence", 0),
         "score": decision.get("score", 0),
+        "strategy": strategy or decision.get("_strategy", ""),
+        "regime": regime or decision.get("_regime", ""),
+        "entry_type": entry_type or decision.get("_entry_type", "full"),
+        "reason": reason or decision.get("_reason", ""),
         "signals": signals_str,
     }
 
     with open(path, "a", newline="") as f:
-        csv.DictWriter(f, fieldnames=AUTO_TRADE_FIELDS).writerow(row)
+        w = csv.DictWriter(f, fieldnames=AUTO_TRADE_FIELDS, extrasaction="ignore")
+        w.writerow(row)
 
 
 def log_auto_equity(user_id: str, price: float, portfolio: dict) -> None:
@@ -1207,7 +1229,11 @@ def run_cycle(user_id: str = "admin") -> dict:
     result = execute_trade(decision, portfolio)
 
     save_auto_portfolio(user_id, portfolio)
-    log_auto_trade(user_id, decision, result, portfolio)
+    mkt_state = decision.get("market_state", {})
+    mkt_regime = mkt_state.get("state", "SLEEPING") if isinstance(mkt_state, dict) else str(mkt_state)
+    log_auto_trade(user_id, decision, result, portfolio,
+                   strategy="main", regime=mkt_regime,
+                   entry_type="full", reason=decision.get("reasoning", ""))
     log_auto_equity(user_id, price, portfolio)
     log_journal_entry(user_id, decision, result, indicators, portfolio, price)
 
@@ -1290,8 +1316,13 @@ def run_cycle(user_id: str = "admin") -> dict:
                         # Save updated portfolio to disk
                         save_auto_portfolio(user_id, portfolio)
 
-                        # Log trade with real quantity
-                        log_auto_trade(user_id, probe_decision, probe_result, portfolio)
+                        # Log trade with real quantity + v6 fields
+                        trade_reason_str = trade_reasons[-1] if trade_reasons else "probe entry"
+                        log_auto_trade(user_id, probe_decision, probe_result, portfolio,
+                                       strategy=trade_strategy,
+                                       regime=trade_regime_str,
+                                       entry_type=trade_entry_type,
+                                       reason=trade_reason_str)
                         log_auto_equity(user_id, price, portfolio)
 
                         # ── UPDATE RE-ENTRY STATE ──

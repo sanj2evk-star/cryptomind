@@ -293,6 +293,31 @@ tr:last-child td {
   margin-bottom: 14px;
 }
 
+/* ─── Trade Quality Badges ─── */
+.trade-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.trade-badge.high { background: rgba(239, 68, 68, 0.12); color: #f97316; }
+.trade-badge.neutral { background: rgba(59, 130, 246, 0.12); color: #60a5fa; }
+.trade-badge.probe { background: rgba(234, 179, 8, 0.12); color: #eab308; }
+.trade-badge.low { background: rgba(107, 114, 128, 0.12); color: #9ca3af; }
+
+/* ─── Night-mode P&L visibility (red tint / Night Shift) ─── */
+/* Negative P&L: heavier weight + subtle background so it's visible even with warm screen tint */
+.pnl-neg {
+  font-weight: 700 !important;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+}
+/* Ensure red is distinct from warm background */
+:root {
+  --red-night: #ff6b6b;  /* brighter red for night visibility */
+}
+
 /* =====================================================================
    RESPONSIVE — OnePlus 15 (phone, 20:9, ~412px CSS width)
    and OnePlus Pad 3 (tablet, 7:5, ~800-1024px CSS width)

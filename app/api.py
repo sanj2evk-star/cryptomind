@@ -658,11 +658,106 @@ def stop_auto_trader(user_id: str = Depends(get_user_id)):
 
 
 @app.get("/auto/trades")
-def get_auto_trades(limit: int = Query(default=20, ge=1, le=100), user_id: str = Depends(get_user_id)):
-    """Get recent auto-trades."""
-    rows = _load_user_csv(user_id, "auto_trades.csv", limit=limit)
-    rows.reverse()
-    return {"count": len(rows), "trades": rows}
+def get_auto_trades(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    action: str = Query(default=""),
+    strategy: str = Query(default=""),
+    regime: str = Query(default=""),
+    entry_type: str = Query(default=""),
+    user_id: str = Depends(get_user_id),
+):
+    """Get auto-trades with pagination and filters.
+
+    v6: Single source of truth for ALL trade history.
+    Supports filtering by action, strategy, regime, entry_type.
+    Returns newest first. offset=0 is most recent.
+    """
+    all_rows = _load_user_csv(user_id, "auto_trades.csv")
+    # Filter out HOLD rows (only keep BUY/SELL unless specifically asked)
+    if action:
+        all_rows = [r for r in all_rows if r.get("action", "").upper() == action.upper()]
+    else:
+        all_rows = [r for r in all_rows if r.get("action", "HOLD") in ("BUY", "SELL")]
+
+    if strategy:
+        all_rows = [r for r in all_rows if strategy.lower() in r.get("strategy", "").lower()]
+    if regime:
+        all_rows = [r for r in all_rows if regime.upper() in r.get("regime", "").upper()]
+    if entry_type:
+        all_rows = [r for r in all_rows if entry_type.lower() in r.get("entry_type", "").lower()]
+
+    total = len(all_rows)
+    all_rows.reverse()  # newest first
+    page = all_rows[offset:offset + limit]
+
+    return {
+        "count": len(page),
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": (offset + limit) < total,
+        "trades": page,
+    }
+
+
+@app.get("/auto/trades/summary")
+def get_trades_summary(user_id: str = Depends(get_user_id)):
+    """Session summary for the trades page. Single-request overview."""
+    all_rows = _load_user_csv(user_id, "auto_trades.csv")
+    executed = [r for r in all_rows if r.get("action") in ("BUY", "SELL")]
+
+    buys = [r for r in executed if r.get("action") == "BUY"]
+    sells = [r for r in executed if r.get("action") == "SELL"]
+    pnls = [_safe_float(r.get("pnl")) for r in sells]
+    wins = sum(1 for p in pnls if p > 0)
+    losses = sum(1 for p in pnls if p < 0)
+    net_pnl = sum(pnls)
+    best = max(pnls) if pnls else 0
+    worst = min(pnls) if pnls else 0
+
+    # Strategy breakdown
+    strat_counts = {}
+    strat_pnl = {}
+    for r in executed:
+        s = r.get("strategy", "unknown")
+        strat_counts[s] = strat_counts.get(s, 0) + 1
+        strat_pnl[s] = strat_pnl.get(s, 0) + _safe_float(r.get("pnl"))
+
+    # Regime breakdown
+    regime_counts = {}
+    for r in executed:
+        reg = r.get("regime", "unknown")
+        regime_counts[reg] = regime_counts.get(reg, 0) + 1
+
+    # Entry type breakdown
+    entry_counts = {}
+    for r in executed:
+        et = r.get("entry_type", "full")
+        entry_counts[et] = entry_counts.get(et, 0) + 1
+
+    # Current state
+    state = auto_trader.get_state()
+    insight = auto_trader.get_session_insight()
+
+    return {
+        "total_trades": len(executed),
+        "buys": len(buys),
+        "sells": len(sells),
+        "wins": wins,
+        "losses": losses,
+        "win_rate": round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else 0,
+        "net_pnl": round(net_pnl, 6),
+        "best_trade": round(best, 6),
+        "worst_trade": round(worst, 6),
+        "regime": state.get("market_state", {}).get("state", "SLEEPING"),
+        "regime_score": state.get("market_state", {}).get("confidence_score", 0),
+        "insight": insight.get("insight", ""),
+        "strategy_breakdown": strat_counts,
+        "strategy_pnl": {k: round(v, 6) for k, v in strat_pnl.items()},
+        "regime_breakdown": regime_counts,
+        "entry_type_breakdown": entry_counts,
+    }
 
 
 @app.get("/auto/equity")
