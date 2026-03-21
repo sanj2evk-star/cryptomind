@@ -345,39 +345,48 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── v7.3: Mind Evolution Strip ── */}
-      {mindData && mindData.evolution_score >= 0 && (
-        <div style={{
-          display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
-          padding: "6px 10px", marginBottom: isTouch ? 5 : 6,
-          background: "var(--surface)", border: "1px solid var(--border)",
-          borderRadius: 6, fontSize: 10,
-          borderLeft: "3px solid #8b5cf6",
-        }}>
-          <span style={{ color: "#8b5cf6", fontWeight: 700, fontSize: 11 }}>
-            {mindData.mind_level?.level || "Rookie"}
-          </span>
-          <span style={{ color: "var(--text-muted)" }}>
-            Evolution: <b style={{ color: "var(--text)" }}>{mindData.evolution_score}</b><span style={{ opacity: 0.5 }}>/1000</span>
-          </span>
-          {mindData.mind_level?.next_level && (
-            <span style={{ color: "var(--text-muted)" }}>
-              Next: <b style={{ color: "#8b5cf6" }}>{mindData.mind_level.next_level}</b>
-              <span style={{ opacity: 0.5 }}> ({mindData.mind_level.points_to_next} pts)</span>
+      {/* ── v7.3.1: Mind Evolution Strip ── */}
+      {mindData && mindData.evolution_score >= 0 && (() => {
+        const conf = mindData.confidence || {};
+        const confColor = { "Very Low": "#6b7280", "Low": "#d97706", "Medium": "#3b82f6", "High": "#22c55e", "Elite": "#8b5cf6" }[conf.label] || "#6b7280";
+        return (
+          <div style={{
+            display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+            padding: "6px 10px", marginBottom: isTouch ? 5 : 6,
+            background: "var(--surface)", border: "1px solid var(--border)",
+            borderRadius: 6, fontSize: 10,
+            borderLeft: "3px solid #8b5cf6",
+          }}>
+            <span style={{ color: "#8b5cf6", fontWeight: 700, fontSize: 11 }}>
+              {mindData.mind_level?.level || "Seed"}
             </span>
-          )}
-          <span style={{ color: "var(--text-muted)" }}>
-            Age: <b style={{ color: "var(--text)" }}>{(mindData.system_age?.total_cycles || 0).toLocaleString()}c</b>
-          </span>
-          {/* Mini progress bar */}
-          <div style={{ flex: "1 1 80px", maxWidth: 120, height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
-            <div style={{
-              width: `${mindData.mind_level?.progress_pct || 0}%`, height: "100%",
-              background: "linear-gradient(90deg, #6366f1, #8b5cf6)", borderRadius: 2,
-            }} />
+            {/* Confidence badge */}
+            <span style={{
+              padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600,
+              background: `${confColor}18`, color: confColor,
+              border: `1px solid ${confColor}33`,
+            }}>
+              {conf.label || "—"}
+            </span>
+            <span style={{ color: "var(--text-muted)" }}>
+              <b style={{ color: "var(--text)" }}>{mindData.evolution_score}</b><span style={{ opacity: 0.5 }}>/1000</span>
+            </span>
+            {mindData.mind_level?.next_level && (
+              <span style={{ color: "var(--text-muted)" }}>
+                <span style={{ opacity: 0.5 }}>{mindData.mind_level.points_to_next} pts to </span>
+                <b style={{ color: "#8b5cf6" }}>{mindData.mind_level.next_level}</b>
+              </span>
+            )}
+            {/* Mini progress bar */}
+            <div style={{ flex: "1 1 80px", maxWidth: 120, height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{
+                width: `${mindData.mind_level?.progress_pct || 0}%`, height: "100%",
+                background: "linear-gradient(90deg, #6366f1, #8b5cf6)", borderRadius: 2,
+              }} />
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Top metrics strip ── */}
       <div className="metric-strip" style={{ display: "flex", gap: isTouch ? 5 : 6, marginBottom: isTouch ? 5 : 6, flexWrap: "wrap" }}>

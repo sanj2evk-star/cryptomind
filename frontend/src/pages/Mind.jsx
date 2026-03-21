@@ -3,20 +3,30 @@ import { useApi } from "../hooks/useApi";
 import { fmtLocalTimeShort } from "../hooks/useTime";
 
 // ---------------------------------------------------------------------------
-// SVG Icons — clean, monochrome, precise
+// SVG Icons — clean, monochrome, premium sigils per level
 // ---------------------------------------------------------------------------
 
 const LEVEL_ICONS = {
-  Rookie:       <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>,
-  Beginner:     <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>,
-  Apprentice:   <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.3L12 15.5l-4.9 2.5.9-5.3-4-3.9 5.5-.8z"/></svg>,
-  Operator:     <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M1 12h4M19 12h4M4.2 19.8l2.8-2.8M17 7l2.8-2.8"/></svg>,
-  Pro:          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><polygon points="12,2 15,9 22,9 16.5,14 18.5,21 12,17 5.5,21 7.5,14 2,9 9,9"/></svg>,
-  Elite:        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>,
-  "World Class":<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>,
-  Assassin:     <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>,
-  Sage:         <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 3c-1.5 5-5 8.5-9 9 4 .5 7.5 4 9 9 1.5-5 5-8.5 9-9-4-.5-7.5-4-9-9z"/></svg>,
-  Godmode:      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2l3 7h7l-5.5 4.5L18.5 21 12 17l-6.5 4 2-7.5L2 9h7z"/><circle cx="12" cy="12" r="3"/></svg>,
+  // Seed — spark
+  Seed:         <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 3c-1 4-3 7-6 9 3 0 5 2 6 5 1-3 3-5 6-5-3-2-5-5-6-9z"/></svg>,
+  // Novice — ring
+  Novice:       <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>,
+  // Apprentice — blade
+  Apprentice:   <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2l1 14-1 2-1-2 1-14zM10 18h4M11 20h2"/></svg>,
+  // Monk — lotus
+  Monk:         <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 21c0-4-3-7-7-8 2-1 4-3 5-6 1 3 3 5 5 6 1-1 2-3 2-6 0 3 1 5 2 6 2-1 4-3 5-6 1 3 3 5 5 6-4 1-7 4-7 8"/><path d="M12 21c0-4 3-7 7-8"/></svg>,
+  // Ranger — compass
+  Ranger:       <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><polygon points="12,6 14,10 12,18 10,10" fill="currentColor" opacity="0.2" stroke="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>,
+  // Sniper — crosshair
+  Sniper:       <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>,
+  // Operator — shield-reticle
+  Operator:     <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2l8 4v6c0 5.5-3.8 10-8 11-4.2-1-8-5.5-8-11V6l8-4z"/><circle cx="12" cy="11" r="3"/><path d="M12 6v2M12 14v2M7 11h2M15 11h2"/></svg>,
+  // Strategist — abstract knight
+  Strategist:   <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 22h6M10 14h4M12 2c-2 0-4 2-4 5 0 2 1 3 2 4l-1 3h6l-1-3c1-1 2-2 2-4 0-3-2-5-4-5z"/><path d="M12 2v3M14.5 4l-2.5 2M9.5 4l2.5 2"/></svg>,
+  // Mastermind — geometric eye
+  Mastermind:   <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>,
+  // Oracle — radiant sigil
+  Oracle:       <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2l2 4 4-1-2 4 4 2-4 2 2 4-4-1-2 4-2-4-4 1 2-4-4-2 4-2-2-4 4 1z"/><circle cx="12" cy="12" r="3"/></svg>,
 };
 
 const MILESTONE_ICONS = {
@@ -25,7 +35,16 @@ const MILESTONE_ICONS = {
   session:         <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.2"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l3 2"/></svg>,
 };
 
-// Daily Mind State Tags — computed from behavior state
+// Confidence colors
+const CONF_COLORS = {
+  "Very Low": "#6b7280",
+  "Low": "#d97706",
+  "Medium": "#3b82f6",
+  "High": "#22c55e",
+  "Elite": "#8b5cf6",
+};
+
+// Daily Mind State Tags
 function getMindStateTag(mind) {
   if (!mind || mind.warming_up) return { label: "Awakening", color: "#6b7280" };
   const score = mind.evolution_score || 0;
@@ -34,14 +53,14 @@ function getMindStateTag(mind) {
   const patience = skills.find(s => s.name === "Patience")?.score || 0;
 
   if (score < 50) return { label: "Awakening", color: "#6b7280" };
-  if (discipline > 70 && patience > 60) return { label: "Calm / Observing", color: "#22c55e" };
-  if (discipline > 60) return { label: "Focused / Selective", color: "#3b82f6" };
-  if (discipline < 40) return { label: "Defensive / Noisy", color: "#f59e0b" };
+  if (discipline > 60 && patience > 50) return { label: "Calm / Observing", color: "#22c55e" };
+  if (discipline > 45) return { label: "Focused / Selective", color: "#3b82f6" };
+  if (discipline < 25) return { label: "Defensive / Noisy", color: "#f59e0b" };
   return { label: "Observing", color: "#8b5cf6" };
 }
 
 // ---------------------------------------------------------------------------
-// Radar Chart — clean SVG spider chart
+// Radar Chart
 // ---------------------------------------------------------------------------
 
 function RadarChart({ skills }) {
@@ -59,7 +78,6 @@ function RadarChart({ skills }) {
     return [cx + r * Math.cos(angle), cy + r * Math.sin(angle)];
   };
 
-  // Grid
   const gridLines = [];
   for (let l = 1; l <= levels; l++) {
     const r = (l / levels) * maxR;
@@ -70,17 +88,14 @@ function RadarChart({ skills }) {
     gridLines.push(<polygon key={l} points={pts} fill="none" stroke="var(--border)" strokeWidth="0.5" opacity="0.5" />);
   }
 
-  // Axes
   const axes = skills.map((s, i) => {
     const [x, y] = getPoint(i, 100);
     return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--border)" strokeWidth="0.5" opacity="0.3" />;
   });
 
-  // Data polygon
   const dataPoints = skills.map((s, i) => getPoint(i, s.score));
   const dataPath = dataPoints.map(p => `${p[0]},${p[1]}`).join(" ");
 
-  // Labels
   const labels = skills.map((s, i) => {
     const angle = angleStep * i - Math.PI / 2;
     const labelR = maxR + 18;
@@ -88,7 +103,7 @@ function RadarChart({ skills }) {
     const y = cy + labelR * Math.sin(angle);
     return (
       <text key={i} x={x} y={y} textAnchor="middle" dominantBaseline="middle"
-        style={{ fontSize: 9, fill: "var(--text-muted)", fontFamily: "inherit" }}>
+        style={{ fontSize: 9, fill: s.warming_up ? "#6b728088" : "var(--text-muted)", fontFamily: "inherit" }}>
         {s.name}
       </text>
     );
@@ -100,7 +115,7 @@ function RadarChart({ skills }) {
       {axes}
       <polygon points={dataPath} fill="rgba(139, 92, 246, 0.15)" stroke="#8b5cf6" strokeWidth="1.5" />
       {dataPoints.map((p, i) => (
-        <circle key={i} cx={p[0]} cy={p[1]} r="3" fill="#8b5cf6" />
+        <circle key={i} cx={p[0]} cy={p[1]} r="3" fill={skills[i]?.warming_up ? "#6b7280" : "#8b5cf6"} />
       ))}
       {labels}
     </svg>
@@ -111,15 +126,16 @@ function RadarChart({ skills }) {
 // Progress Bar
 // ---------------------------------------------------------------------------
 
-function ProgressBar({ value, max, label }) {
+function ProgressBar({ value, max, label, color }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  const bg = color || "linear-gradient(90deg, #6366f1, #8b5cf6)";
   return (
     <div style={{ width: "100%" }}>
       {label && <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 3 }}>{label}</div>}
       <div style={{ height: 6, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
         <div style={{
           width: `${pct}%`, height: "100%", borderRadius: 3,
-          background: "linear-gradient(90deg, #6366f1, #8b5cf6)",
+          background: bg,
           transition: "width 0.6s ease",
         }} />
       </div>
@@ -128,7 +144,7 @@ function ProgressBar({ value, max, label }) {
 }
 
 // ---------------------------------------------------------------------------
-// Skill Card
+// Skill Card — v7.3.1 with confidence + evidence
 // ---------------------------------------------------------------------------
 
 function SkillCard({ skill }) {
@@ -137,6 +153,7 @@ function SkillCard({ skill }) {
     weak: "#f97316", warming_up: "#6b7280",
   };
   const color = statusColors[skill.status] || "#6b7280";
+  const confColor = skill.confidence_color || CONF_COLORS[skill.confidence_label] || "#6b7280";
 
   return (
     <div style={{
@@ -149,6 +166,21 @@ function SkillCard({ skill }) {
       </div>
       <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 6 }}>{skill.description}</div>
       <ProgressBar value={skill.score} max={100} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, gap: 6 }}>
+        <span style={{
+          fontSize: 9, padding: "1px 6px", borderRadius: 3,
+          background: `${confColor}18`, color: confColor,
+          fontWeight: 600, border: `1px solid ${confColor}33`,
+        }}>
+          {skill.confidence_label || "—"}
+        </span>
+        <span style={{ fontSize: 9, color: "var(--text-muted)" }}>
+          {skill.evidence_count || 0} samples
+        </span>
+        {skill.warming_up && (
+          <span style={{ fontSize: 9, color: "#6b7280", fontStyle: "italic" }}>warming up</span>
+        )}
+      </div>
       <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 4, fontStyle: "italic" }}>{skill.detail}</div>
     </div>
   );
@@ -210,10 +242,16 @@ export default function MindPage() {
   const milestones = timelineData?.milestones || [];
   const history = historyData?.history || [];
 
-  const mindLevel = mind?.mind_level || { level: "Rookie", score: 0, progress_pct: 0 };
+  const mindLevel = mind?.mind_level || { level: "Seed", score: 0, progress_pct: 0 };
   const evolutionScore = mind?.evolution_score || 0;
+  const confidence = mind?.confidence || { score: 0, label: "Very Low", color: "#6b7280" };
+  const evidenceStrength = mind?.evidence_strength || { pct: 0 };
   const mindState = getMindStateTag(mind);
-  const levelIcon = LEVEL_ICONS[mindLevel.level] || LEVEL_ICONS.Rookie;
+  const levelIcon = LEVEL_ICONS[mindLevel.level] || LEVEL_ICONS.Seed;
+  const confColor = confidence.color || CONF_COLORS[confidence.label] || "#6b7280";
+
+  const whyLevel = mind?.why_this_level || [];
+  const whatNeeded = mind?.what_needed_for_next || [];
 
   const tabs = [
     { id: "overview", label: "Overview" },
@@ -241,9 +279,15 @@ export default function MindPage() {
           background: `${mindState.color}18`, color: mindState.color,
           border: `1px solid ${mindState.color}33`,
         }}>{mindState.label}</span>
+        {/* Confidence badge */}
+        <span style={{
+          padding: "3px 10px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+          background: `${confColor}18`, color: confColor,
+          border: `1px solid ${confColor}33`,
+        }}>Confidence: {confidence.label}</span>
       </div>
 
-      {/* Hero Card — Level + Score */}
+      {/* Hero Card */}
       <div style={{
         padding: "20px 24px", background: "var(--surface)", border: "1px solid var(--border)",
         borderRadius: 10, marginBottom: 12, display: "flex", alignItems: "center", gap: 24,
@@ -263,14 +307,31 @@ export default function MindPage() {
             <span style={{ fontSize: 28, fontWeight: 700 }}>{evolutionScore}</span>
             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>/ 1000</span>
           </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#8b5cf6", marginBottom: 8 }}>
-            {mindLevel.level}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#8b5cf6" }}>
+              {mindLevel.level}
+            </span>
+            <span style={{
+              fontSize: 10, padding: "1px 8px", borderRadius: 3,
+              background: `${confColor}18`, color: confColor, fontWeight: 600,
+            }}>
+              {confidence.label} ({confidence.score}%)
+            </span>
           </div>
           <ProgressBar
             value={mindLevel.progress_pct}
             max={100}
             label={mindLevel.next_level ? `${mindLevel.points_to_next} pts to ${mindLevel.next_level}` : "Maximum level reached"}
           />
+          {/* Evidence Strength bar */}
+          <div style={{ marginTop: 6 }}>
+            <ProgressBar
+              value={evidenceStrength.pct}
+              max={100}
+              label={`Evidence Strength: ${evidenceStrength.pct}%`}
+              color={confColor}
+            />
+          </div>
         </div>
 
         {/* Quick Stats */}
@@ -330,24 +391,63 @@ export default function MindPage() {
             )}
           </div>
 
-          {/* Recent Lessons */}
-          <div style={{
-            padding: "16px", background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 8, maxHeight: 340, overflowY: "auto",
-          }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>
-              Recent Learning
+          {/* Right column: Why This Level + What's Needed + Lessons */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* Why This Level */}
+            <div style={{
+              padding: "12px 16px", background: "var(--surface)", border: "1px solid var(--border)",
+              borderRadius: 8,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>
+                Why {mindLevel.level}?
+              </div>
+              {whyLevel.length > 0 ? whyLevel.map((reason, i) => (
+                <div key={i} style={{ fontSize: 11, color: "var(--text)", padding: "2px 0", display: "flex", gap: 6, alignItems: "flex-start" }}>
+                  <span style={{ color: "var(--text-muted)", fontSize: 8, marginTop: 3 }}>•</span>
+                  <span>{reason}</span>
+                </div>
+              )) : (
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Analyzing system state...</div>
+              )}
             </div>
-            {feed.length > 0 ? feed.slice(0, 8).map((item, i) => (
-              <FeedItem key={i} item={item} />
-            )) : (
-              <div style={{ color: "var(--text-muted)", fontSize: 12, padding: 20, textAlign: "center" }}>
-                Warming up — collecting system evidence...
+
+            {/* What's Needed for Next Level */}
+            {whatNeeded.length > 0 && mindLevel.next_level && (
+              <div style={{
+                padding: "12px 16px", background: "var(--surface)", border: "1px solid var(--border)",
+                borderRadius: 8, borderLeft: "3px solid #8b5cf6",
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>
+                  To reach {mindLevel.next_level}
+                </div>
+                {whatNeeded.map((req, i) => (
+                  <div key={i} style={{ fontSize: 11, color: "var(--text)", padding: "2px 0", display: "flex", gap: 6, alignItems: "flex-start" }}>
+                    <span style={{ color: "#8b5cf6", fontSize: 10, marginTop: 1 }}>→</span>
+                    <span>{req}</span>
+                  </div>
+                ))}
               </div>
             )}
+
+            {/* Recent Lessons (compact) */}
+            <div style={{
+              padding: "12px 16px", background: "var(--surface)", border: "1px solid var(--border)",
+              borderRadius: 8, maxHeight: 180, overflowY: "auto", flex: 1,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>
+                Recent Learning
+              </div>
+              {feed.length > 0 ? feed.slice(0, 5).map((item, i) => (
+                <FeedItem key={i} item={item} />
+              )) : (
+                <div style={{ color: "var(--text-muted)", fontSize: 12, padding: 12, textAlign: "center" }}>
+                  Warming up — collecting evidence...
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Evolution History mini chart */}
+          {/* Evolution History chart (full width) */}
           {history.length > 1 && (
             <div style={{
               gridColumn: "1 / -1", padding: "16px", background: "var(--surface)",
@@ -385,12 +485,10 @@ export default function MindPage() {
 
       {tab === "timeline" && (
         <div>
-          {/* Version milestones */}
           <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 10 }}>
             Session History
           </div>
           <div style={{ position: "relative", paddingLeft: 24 }}>
-            {/* Vertical line */}
             <div style={{
               position: "absolute", left: 6, top: 0, bottom: 0, width: 1,
               background: "var(--border)",
@@ -398,7 +496,6 @@ export default function MindPage() {
 
             {timeline.map((entry, i) => (
               <div key={i} style={{ position: "relative", marginBottom: 16, paddingLeft: 16 }}>
-                {/* Dot */}
                 <div style={{
                   position: "absolute", left: -21, top: 4, width: 12, height: 12,
                   borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
@@ -408,7 +505,6 @@ export default function MindPage() {
                   {entry.is_active && <div style={{ width: 4, height: 4, borderRadius: "50%", background: "#fff" }} />}
                 </div>
 
-                {/* Content */}
                 <div style={{
                   padding: "10px 14px", background: "var(--surface)", border: "1px solid var(--border)",
                   borderRadius: 6, borderLeft: entry.is_active ? "3px solid #8b5cf6" : "none",
@@ -434,7 +530,6 @@ export default function MindPage() {
             ))}
           </div>
 
-          {/* Milestones */}
           {milestones.length > 0 && (
             <>
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginTop: 20, marginBottom: 10 }}>
@@ -496,7 +591,6 @@ function MiniChart({ data }) {
     return `${x},${y}`;
   }).join(" ");
 
-  // Area fill
   const areaPath = `M${padX},${padY + chartH} ` +
     scores.map((s, i) => {
       const x = padX + (i / (scores.length - 1)) * chartW;
@@ -507,7 +601,6 @@ function MiniChart({ data }) {
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} style={{ display: "block" }}>
-      {/* Grid lines */}
       {[0, 0.25, 0.5, 0.75, 1].map(f => {
         const y = padY + chartH * (1 - f);
         const val = Math.round(minScore + range * f);
@@ -518,11 +611,8 @@ function MiniChart({ data }) {
           </g>
         );
       })}
-      {/* Area */}
       <path d={areaPath} fill="rgba(139, 92, 246, 0.08)" />
-      {/* Line */}
       <polyline points={points} fill="none" stroke="#8b5cf6" strokeWidth="2" />
-      {/* Current point */}
       {scores.length > 0 && (() => {
         const lastX = padX + ((scores.length - 1) / (scores.length - 1)) * chartW;
         const lastY = padY + chartH - ((scores[scores.length - 1] - minScore) / range) * chartH;
