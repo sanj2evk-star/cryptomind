@@ -22,7 +22,7 @@ from config import DATA_DIR
 # App version — single source of truth
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "7.2.0"
+APP_VERSION = "7.3.0"
 
 # ---------------------------------------------------------------------------
 # Module state
@@ -228,6 +228,14 @@ def on_cycle_complete(cycle_number: int, indicators: dict, decision: dict,
         blocked_trade_reason=blocked_reason,
         short_summary=_make_cycle_summary(action, score, regime, price),
     )
+
+    # v7.3: Take evolution snapshot every 100 cycles
+    if cycle_number > 0 and cycle_number % 100 == 0:
+        try:
+            import mind_evolution
+            mind_evolution.take_evolution_snapshot(_current_session_id, cycle_number)
+        except Exception as e:
+            print(f"[session] Evolution snapshot error: {e}")
 
 
 def on_trade_executed(action: str, price: float, qty: float, dollar_size: float,

@@ -85,6 +85,7 @@ export default function Dashboard() {
   const { data: sysAge } = useApi("/v7/system-age", 10000);
   const { data: memStatus } = useApi("/v7/memory", 30000);
   const { data: latestReview } = useApi("/v7/daily-review", 60000);
+  const { data: mindData } = useApi("/v7/mind", 30000);
 
   const { status: sysStatus, lastPing } = useKeepAlive();
   const { enabled: soundEnabled, toggle: toggleSound, checkTrades: checkTradeSound } = useTradeSound();
@@ -341,6 +342,40 @@ export default function Dashboard() {
               Last Review: {latestReview.review.review_date || "—"}
             </span>
           )}
+        </div>
+      )}
+
+      {/* ── v7.3: Mind Evolution Strip ── */}
+      {mindData && mindData.evolution_score >= 0 && (
+        <div style={{
+          display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+          padding: "6px 10px", marginBottom: isTouch ? 5 : 6,
+          background: "var(--surface)", border: "1px solid var(--border)",
+          borderRadius: 6, fontSize: 10,
+          borderLeft: "3px solid #8b5cf6",
+        }}>
+          <span style={{ color: "#8b5cf6", fontWeight: 700, fontSize: 11 }}>
+            {mindData.mind_level?.level || "Rookie"}
+          </span>
+          <span style={{ color: "var(--text-muted)" }}>
+            Evolution: <b style={{ color: "var(--text)" }}>{mindData.evolution_score}</b><span style={{ opacity: 0.5 }}>/1000</span>
+          </span>
+          {mindData.mind_level?.next_level && (
+            <span style={{ color: "var(--text-muted)" }}>
+              Next: <b style={{ color: "#8b5cf6" }}>{mindData.mind_level.next_level}</b>
+              <span style={{ opacity: 0.5 }}> ({mindData.mind_level.points_to_next} pts)</span>
+            </span>
+          )}
+          <span style={{ color: "var(--text-muted)" }}>
+            Age: <b style={{ color: "var(--text)" }}>{(mindData.system_age?.total_cycles || 0).toLocaleString()}c</b>
+          </span>
+          {/* Mini progress bar */}
+          <div style={{ flex: "1 1 80px", maxWidth: 120, height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
+            <div style={{
+              width: `${mindData.mind_level?.progress_pct || 0}%`, height: "100%",
+              background: "linear-gradient(90deg, #6366f1, #8b5cf6)", borderRadius: 2,
+            }} />
+          </div>
         </div>
       )}
 

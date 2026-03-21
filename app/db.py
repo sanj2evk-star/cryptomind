@@ -470,6 +470,47 @@ CREATE INDEX IF NOT EXISTS idx_daily_bias_active ON daily_bias(active);
 CREATE INDEX IF NOT EXISTS idx_adaptation_journal_session ON adaptation_journal(session_id);
 CREATE INDEX IF NOT EXISTS idx_adaptation_journal_target ON adaptation_journal(target);
 CREATE INDEX IF NOT EXISTS idx_adaptation_journal_status ON adaptation_journal(allowed_or_blocked);
+
+-- 16) evolution_snapshots: periodic mind evolution score snapshots (v7.3)
+CREATE TABLE IF NOT EXISTS evolution_snapshots (
+    snapshot_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id              INTEGER NOT NULL,
+    timestamp               TEXT NOT NULL,
+    cycle_number            INTEGER NOT NULL DEFAULT 0,
+    evolution_score         INTEGER NOT NULL DEFAULT 0,
+    mind_level              TEXT NOT NULL DEFAULT 'Rookie',
+    -- skill sub-scores (0-100)
+    discipline_score        INTEGER NOT NULL DEFAULT 0,
+    risk_control_score      INTEGER NOT NULL DEFAULT 0,
+    timing_score            INTEGER NOT NULL DEFAULT 0,
+    adaptation_score        INTEGER NOT NULL DEFAULT 0,
+    regime_reading_score    INTEGER NOT NULL DEFAULT 0,
+    opportunity_score       INTEGER NOT NULL DEFAULT 0,
+    consistency_score       INTEGER NOT NULL DEFAULT 0,
+    self_correction_score   INTEGER NOT NULL DEFAULT 0,
+    patience_score          INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- 17) milestones: significant system events (v7.3)
+CREATE TABLE IF NOT EXISTS milestones (
+    milestone_id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id              INTEGER,
+    timestamp               TEXT NOT NULL,
+    milestone_type          TEXT NOT NULL DEFAULT 'achievement',
+    title                   TEXT NOT NULL,
+    description             TEXT,
+    evolution_score_at      INTEGER NOT NULL DEFAULT 0,
+    mind_level_at           TEXT NOT NULL DEFAULT 'Rookie',
+    version_tag             TEXT,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- v7.3 indexes
+CREATE INDEX IF NOT EXISTS idx_evolution_snapshots_session ON evolution_snapshots(session_id);
+CREATE INDEX IF NOT EXISTS idx_evolution_snapshots_cycle ON evolution_snapshots(cycle_number);
+CREATE INDEX IF NOT EXISTS idx_milestones_session ON milestones(session_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_type ON milestones(milestone_type);
 """
 
 
@@ -1514,6 +1555,106 @@ def get_bias_history(session_id: int = None, limit: int = 10) -> list[dict]:
         else:
             rows = conn.execute(
                 "SELECT * FROM daily_bias ORDER BY bias_id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+        return rows_to_dicts(rows)
+
+
+# ---------------------------------------------------------------------------
+# evolution_snapshots helpers (v7.3)
+# ---------------------------------------------------------------------------
+
+def insert_evolution_snapshot(session_id: int, cycle_number: int,
+                               evolution_score: int, mind_level: str,
+                               discipline_score: int = 0, risk_control_score: int = 0,
+                               timing_score: int = 0, adaptation_score: int = 0,
+                               regime_reading_score: int = 0, opportunity_score: int = 0,
+                               consistency_score: int = 0, self_correction_score: int = 0,
+                               patience_score: int = 0) -> int:
+    """Insert an evolution snapshot. Returns snapshot_id."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        cursor = conn.execute(
+            """INSERT INTO evolution_snapshots
+               (session_id, timestamp, cycle_number, evolution_score, mind_level,
+                discipline_score, risk_control_score, timing_score,
+                adaptation_score, regime_reading_score, opportunity_score,
+                consistency_score, self_correction_score, patience_score)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, now, cycle_number, evolution_score, mind_level,
+             discipline_score, risk_control_score, timing_score,
+             adaptation_score, regime_reading_score, opportunity_score,
+             consistency_score, self_correction_score, patience_score)
+        )
+        return cursor.lastrowid
+
+
+def get_evolution_history(session_id: int = None, limit: int = 100) -> list[dict]:
+    """Get evolution score history for charting."""
+    with get_db() as conn:
+        if session_id:
+            rows = conn.execute(
+                """SELECT * FROM evolution_snapshots
+                   WHERE session_id = ?
+                   ORDER BY snapshot_id DESC LIMIT ?""",
+                (session_id, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM evolution_snapshots ORDER BY snapshot_id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_latest_evolution_snapshot(session_id: int = None) -> dict | None:
+    """Get the most recent evolution snapshot."""
+    with get_db() as conn:
+        if session_id:
+            row = conn.execute(
+                "SELECT * FROM evolution_snapshots WHERE session_id = ? ORDER BY snapshot_id DESC LIMIT 1",
+                (session_id,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM evolution_snapshots ORDER BY snapshot_id DESC LIMIT 1"
+            ).fetchone()
+        return dict_from_row(row)
+
+
+# ---------------------------------------------------------------------------
+# milestones helpers (v7.3)
+# ---------------------------------------------------------------------------
+
+def insert_milestone(session_id: int, title: str, description: str = None,
+                      milestone_type: str = "achievement",
+                      evolution_score_at: int = 0, mind_level_at: str = "Rookie",
+                      version_tag: str = None) -> int:
+    """Insert a milestone event. Returns milestone_id."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        cursor = conn.execute(
+            """INSERT INTO milestones
+               (session_id, timestamp, milestone_type, title, description,
+                evolution_score_at, mind_level_at, version_tag)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, now, milestone_type, title, description,
+             evolution_score_at, mind_level_at, version_tag)
+        )
+        return cursor.lastrowid
+
+
+def get_milestones(session_id: int = None, limit: int = 50) -> list[dict]:
+    """Get milestones, newest first."""
+    with get_db() as conn:
+        if session_id:
+            rows = conn.execute(
+                "SELECT * FROM milestones WHERE session_id = ? ORDER BY milestone_id DESC LIMIT ?",
+                (session_id, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM milestones ORDER BY milestone_id DESC LIMIT ?",
                 (limit,)
             ).fetchall()
         return rows_to_dicts(rows)

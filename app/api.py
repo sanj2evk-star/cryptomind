@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7 — Memory + Reflection + Self-Evolving Core",
-    version="7.2.0",
+    description="v7 — Memory + Reflection + Self-Evolving Core + Mind Evolution",
+    version="7.3.0",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -1132,6 +1132,67 @@ def get_adaptation_journal(
 
 
 # ---------------------------------------------------------------------------
+# v7.3: Mind Evolution Layer (read-only intelligence)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/v7/mind")
+def get_mind_state():
+    """Full mind evolution state — score, level, skills, system age."""
+    try:
+        import mind_evolution
+        return mind_evolution.get_full_mind_state()
+    except Exception as e:
+        return {"error": str(e), "evolution_score": 0}
+
+
+@app.get("/v7/mind/history")
+def get_mind_history(limit: int = Query(default=100, ge=1, le=500)):
+    """Evolution score history for charting."""
+    try:
+        import mind_evolution
+        history = mind_evolution.get_evolution_history(limit=limit)
+        return {"history": history, "count": len(history)}
+    except Exception as e:
+        return {"error": str(e), "history": []}
+
+
+@app.get("/v7/mind/skills")
+def get_mind_skills():
+    """Skill breakdown — 9 sub-scores with descriptions."""
+    try:
+        import mind_evolution
+        skills = mind_evolution.compute_skill_breakdown()
+        return {"skills": skills}
+    except Exception as e:
+        return {"error": str(e), "skills": []}
+
+
+@app.get("/v7/mind/lessons")
+def get_mind_lessons():
+    """Recent learning feed — improvements, regressions, strengths, weaknesses."""
+    try:
+        import mind_evolution
+        feed = mind_evolution.get_recent_learning()
+        return {"feed": feed, "count": len(feed)}
+    except Exception as e:
+        return {"error": str(e), "feed": []}
+
+
+@app.get("/v7/mind/timeline")
+def get_mind_timeline():
+    """Version/session timeline with milestones."""
+    try:
+        import mind_evolution
+        import db as v7db
+        timeline = mind_evolution.get_session_timeline()
+        milestones = v7db.get_milestones(limit=50)
+        return {"timeline": timeline, "milestones": milestones}
+    except Exception as e:
+        return {"error": str(e), "timeline": [], "milestones": []}
+
+
+# ---------------------------------------------------------------------------
 # Static frontend serving (production desktop app)
 #
 # Serves the built React frontend so the Electron app can load everything
@@ -1163,7 +1224,7 @@ if _frontend_dir:
     _index_html = _frontend_dir / "index.html"
 
     # Known SPA routes that collide with API endpoints
-    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard", "/memory"}
+    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard", "/memory", "/mind"}
 
     class SPAMiddleware(BaseHTTPMiddleware):
         """Serve index.html for browser navigation to SPA routes.
