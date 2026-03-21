@@ -9,6 +9,7 @@ import Journal from "./pages/Journal";
 import Leaderboard from "./pages/Leaderboard";
 import MemoryPage from "./pages/Memory";
 import MindPage from "./pages/Mind";
+import LabPage from "./pages/Lab";
 
 // ---------------------------------------------------------------------------
 // Health check states: "checking" | "ok" | "down"
@@ -127,6 +128,7 @@ export default function App() {
     { to: "/leaderboard", icon: "🏅", label: "Leaderboard" },
     { to: "/memory", icon: "🧠", label: "Memory" },
     { to: "/mind", icon: "◈", label: "Mind" },
+    { to: "/lab", icon: "⬡", label: "Lab" },
   ];
 
   // 4. Backend up, logged in → full app
@@ -169,6 +171,7 @@ export default function App() {
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/memory" element={<MemoryPage />} />
           <Route path="/mind" element={<MindPage />} />
+          <Route path="/lab" element={<LabPage />} />
         </Routes>
       </main>
     </div>

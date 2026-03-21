@@ -16,6 +16,12 @@ Tables:
     8) adaptation_events   — every behavior adaptation
     9) behavior_profile    — learned personality parameters
    10) news_events         — scaffolded for v8 news/context brain
+   18) news_event_analysis — classified news with observer scores (v7.4)
+   19) mind_feed_events    — observer feed stream (v7.4)
+   20) mind_state_snapshots — periodic mind state captures (v7.4)
+   21) personality_snapshots — periodic personality trait captures (v7.4 C2)
+   22) session_intents      — daily posture records (v7.4 C2)
+   23) lifetime_mind_stats  — cross-session aggregation cache (v7.4 C2)
 """
 
 from __future__ import annotations
@@ -511,6 +517,147 @@ CREATE INDEX IF NOT EXISTS idx_evolution_snapshots_session ON evolution_snapshot
 CREATE INDEX IF NOT EXISTS idx_evolution_snapshots_cycle ON evolution_snapshots(cycle_number);
 CREATE INDEX IF NOT EXISTS idx_milestones_session ON milestones(session_id);
 CREATE INDEX IF NOT EXISTS idx_milestones_type ON milestones(milestone_type);
+
+-- 18) news_event_analysis: classified news with observer scores (v7.4)
+CREATE TABLE IF NOT EXISTS news_event_analysis (
+    analysis_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    news_event_id           INTEGER,
+    session_id              INTEGER,
+    timestamp               TEXT NOT NULL,
+    headline                TEXT NOT NULL,
+    source                  TEXT,
+    category                TEXT NOT NULL DEFAULT 'general',
+    trust_score             REAL NOT NULL DEFAULT 0.5,
+    novelty_score           REAL NOT NULL DEFAULT 0.5,
+    relevance_score         REAL NOT NULL DEFAULT 0.0,
+    impact_bias             TEXT NOT NULL DEFAULT 'neutral',
+    impact_strength         REAL NOT NULL DEFAULT 0.0,
+    half_life               REAL NOT NULL DEFAULT 1.0,
+    market_scope            TEXT DEFAULT 'crypto',
+    volatility_warning      INTEGER NOT NULL DEFAULT 0,
+    hype_score              REAL NOT NULL DEFAULT 0.0,
+    bullshit_risk           REAL NOT NULL DEFAULT 0.0,
+    sentiment               TEXT NOT NULL DEFAULT 'neutral',
+    verdict                 TEXT NOT NULL DEFAULT 'noise',
+    explanation             TEXT,
+    accepted                INTEGER NOT NULL DEFAULT 0,
+    url                     TEXT,
+    original_timestamp      TEXT,
+    FOREIGN KEY (news_event_id) REFERENCES news_events(news_id),
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- 19) mind_feed_events: observer feed stream (v7.4)
+CREATE TABLE IF NOT EXISTS mind_feed_events (
+    event_id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id              INTEGER NOT NULL,
+    timestamp               TEXT NOT NULL,
+    event_type              TEXT NOT NULL DEFAULT 'system',
+    title                   TEXT NOT NULL DEFAULT '',
+    summary                 TEXT NOT NULL,
+    detail                  TEXT,
+    decision                TEXT,
+    mood                    TEXT,
+    source                  TEXT,
+    source_trust            REAL,
+    novelty_score           REAL NOT NULL DEFAULT 0.0,
+    relevance_score         REAL NOT NULL DEFAULT 0.0,
+    hype_score              REAL NOT NULL DEFAULT 0.0,
+    bs_risk                 REAL NOT NULL DEFAULT 0.0,
+    confidence              REAL NOT NULL DEFAULT 0.5,
+    linked_news_event_id    INTEGER,
+    linked_trade_id         INTEGER,
+    linked_cycle_snapshot_id INTEGER,
+    metadata_json           TEXT,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id),
+    FOREIGN KEY (linked_news_event_id) REFERENCES news_events(news_id),
+    FOREIGN KEY (linked_trade_id) REFERENCES trade_ledger(trade_id),
+    FOREIGN KEY (linked_cycle_snapshot_id) REFERENCES cycle_snapshots(snapshot_id)
+);
+
+-- 20) mind_state_snapshots: periodic mind state captures (v7.4)
+CREATE TABLE IF NOT EXISTS mind_state_snapshots (
+    snapshot_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id              INTEGER NOT NULL,
+    timestamp               TEXT NOT NULL,
+    cycle_number            INTEGER NOT NULL DEFAULT 0,
+    mind_state              TEXT NOT NULL DEFAULT 'idle_waiting',
+    mind_state_label        TEXT NOT NULL DEFAULT 'Idle & Waiting',
+    action_impulse          TEXT NOT NULL DEFAULT 'none',
+    crowd_heat              TEXT NOT NULL DEFAULT 'neutral',
+    signal_quality          REAL NOT NULL DEFAULT 0.5,
+    narrative_distortion    REAL NOT NULL DEFAULT 0.0,
+    clarity                 INTEGER NOT NULL DEFAULT 50,
+    current_focus           TEXT,
+    reasoning_summary       TEXT,
+    fear_greed_value        INTEGER,
+    noise_ratio             REAL,
+    market_state            TEXT,
+    thoughts_json           TEXT,
+    concerns_json           TEXT,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- v7.4 indexes
+CREATE INDEX IF NOT EXISTS idx_news_analysis_verdict ON news_event_analysis(verdict);
+CREATE INDEX IF NOT EXISTS idx_news_analysis_ts ON news_event_analysis(timestamp);
+CREATE INDEX IF NOT EXISTS idx_news_analysis_news_event ON news_event_analysis(news_event_id);
+CREATE INDEX IF NOT EXISTS idx_mind_feed_session ON mind_feed_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_mind_feed_type ON mind_feed_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_mind_feed_ts ON mind_feed_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_mind_state_snap_session ON mind_state_snapshots(session_id);
+CREATE INDEX IF NOT EXISTS idx_mind_state_snap_cycle ON mind_state_snapshots(cycle_number);
+
+-- 21) personality_snapshots: periodic personality trait captures (v7.4 Chunk 2)
+CREATE TABLE IF NOT EXISTS personality_snapshots (
+    snapshot_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id              INTEGER NOT NULL,
+    timestamp               TEXT NOT NULL,
+    dominant_trait           TEXT,
+    patience_score          INTEGER NOT NULL DEFAULT 50,
+    aggression_control      INTEGER NOT NULL DEFAULT 50,
+    hype_resistance         INTEGER NOT NULL DEFAULT 50,
+    adaptability_score      INTEGER NOT NULL DEFAULT 50,
+    discipline_score        INTEGER NOT NULL DEFAULT 50,
+    self_correction_score   INTEGER NOT NULL DEFAULT 50,
+    risk_awareness_score    INTEGER NOT NULL DEFAULT 50,
+    oneliner                TEXT,
+    evidence_json           TEXT,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- 22) session_intents: daily posture records (v7.4 Chunk 2)
+CREATE TABLE IF NOT EXISTS session_intents (
+    intent_id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id              INTEGER NOT NULL,
+    timestamp               TEXT NOT NULL,
+    intent                  TEXT NOT NULL DEFAULT 'neutral',
+    confidence              REAL NOT NULL DEFAULT 0.3,
+    reasoning               TEXT,
+    factors_json            TEXT,
+    context_json            TEXT,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- 23) lifetime_mind_stats: cross-session aggregation cache (v7.4 Chunk 2)
+CREATE TABLE IF NOT EXISTS lifetime_mind_stats (
+    stat_id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp               TEXT NOT NULL,
+    total_sessions          INTEGER NOT NULL DEFAULT 0,
+    total_cycles            INTEGER NOT NULL DEFAULT 0,
+    total_trades            INTEGER NOT NULL DEFAULT 0,
+    total_hours             REAL NOT NULL DEFAULT 0.0,
+    lifetime_pnl            REAL NOT NULL DEFAULT 0.0,
+    avg_evolution_score     REAL NOT NULL DEFAULT 0.0,
+    peak_evolution_score    INTEGER NOT NULL DEFAULT 0,
+    peak_level              TEXT NOT NULL DEFAULT 'Seed',
+    data_json               TEXT
+);
+
+-- v7.4 Chunk 2 indexes
+CREATE INDEX IF NOT EXISTS idx_personality_snap_session ON personality_snapshots(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_intents_session ON session_intents(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_intents_ts ON session_intents(timestamp);
 """
 
 
@@ -1658,3 +1805,337 @@ def get_milestones(session_id: int = None, limit: int = 50) -> list[dict]:
                 (limit,)
             ).fetchall()
         return rows_to_dicts(rows)
+
+
+# ---------------------------------------------------------------------------
+# news_event_analysis helpers (v7.4)
+# ---------------------------------------------------------------------------
+
+def insert_news_analysis(session_id: int, headline: str, verdict: str,
+                          news_event_id: int = None, **kwargs) -> int:
+    """Insert a classified news analysis.  Deduplicates by headline."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT analysis_id FROM news_event_analysis WHERE headline = ? LIMIT 1",
+            (headline,)
+        ).fetchone()
+        if existing:
+            return existing["analysis_id"]
+        data = {
+            "session_id":         session_id,
+            "news_event_id":      news_event_id,
+            "timestamp":          now,
+            "headline":           headline,
+            "verdict":            verdict,
+        }
+        data.update(kwargs)
+        cols = ", ".join(data.keys())
+        ph   = ", ".join("?" for _ in data)
+        cursor = conn.execute(
+            f"INSERT INTO news_event_analysis ({cols}) VALUES ({ph})",
+            list(data.values()),
+        )
+        return cursor.lastrowid
+
+
+def get_news_analyses(verdict: str = None, limit: int = 50) -> list[dict]:
+    with get_db() as conn:
+        if verdict:
+            rows = conn.execute(
+                "SELECT * FROM news_event_analysis WHERE verdict = ? ORDER BY analysis_id DESC LIMIT ?",
+                (verdict, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM news_event_analysis ORDER BY analysis_id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_news_analysis_summary() -> dict:
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN verdict = 'interesting' THEN 1 ELSE 0 END) as interesting,
+                SUM(CASE WHEN verdict = 'watch' THEN 1 ELSE 0 END) as watched,
+                SUM(CASE WHEN verdict = 'reject' THEN 1 ELSE 0 END) as rejected,
+                SUM(CASE WHEN verdict = 'noise' THEN 1 ELSE 0 END) as noise,
+                SUM(CASE WHEN sentiment = 'bullish' THEN 1 ELSE 0 END) as bullish,
+                SUM(CASE WHEN sentiment = 'bearish' THEN 1 ELSE 0 END) as bearish
+            FROM news_event_analysis
+        """).fetchone()
+        return dict_from_row(row) if row else {}
+
+
+# ---------------------------------------------------------------------------
+# mind_feed_events helpers (v7.4)
+# ---------------------------------------------------------------------------
+
+def insert_mind_feed_event(session_id: int, event_type: str, summary: str,
+                            title: str = "", detail: str = None,
+                            mood: str = None, source: str = None,
+                            novelty_score: float = 0.0,
+                            relevance_score: float = 0.0,
+                            hype_score: float = 0.0,
+                            bs_risk: float = 0.0,
+                            confidence: float = 0.5,
+                            linked_news_event_id: int = None,
+                            linked_trade_id: int = None,
+                            linked_cycle_snapshot_id: int = None,
+                            metadata_json: str = None) -> int:
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        # dedupe (same type + summary within 60s)
+        existing = conn.execute(
+            """SELECT event_id FROM mind_feed_events
+               WHERE session_id = ? AND event_type = ? AND summary = ?
+               AND timestamp > datetime(?, '-60 seconds')
+               LIMIT 1""",
+            (session_id, event_type, summary, now)
+        ).fetchone()
+        if existing:
+            return existing["event_id"]
+        cursor = conn.execute(
+            """INSERT INTO mind_feed_events
+               (session_id, timestamp, event_type, title, summary, detail,
+                mood, source, novelty_score, relevance_score, hype_score,
+                bs_risk, confidence, linked_news_event_id, linked_trade_id,
+                linked_cycle_snapshot_id, metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, now, event_type, title, summary, detail,
+             mood, source, novelty_score, relevance_score, hype_score,
+             bs_risk, confidence, linked_news_event_id, linked_trade_id,
+             linked_cycle_snapshot_id, metadata_json)
+        )
+        return cursor.lastrowid
+
+
+def get_mind_feed_events(session_id: int = None, event_type: str = None,
+                          limit: int = 50) -> list[dict]:
+    with get_db() as conn:
+        w, p = [], []
+        if session_id:
+            w.append("session_id = ?"); p.append(session_id)
+        if event_type:
+            w.append("event_type = ?"); p.append(event_type)
+        where = " WHERE " + " AND ".join(w) if w else ""
+        rows = conn.execute(
+            f"SELECT * FROM mind_feed_events{where} ORDER BY event_id DESC LIMIT ?",
+            p + [limit]
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+# ---------------------------------------------------------------------------
+# mind_state_snapshots helpers (v7.4)
+# ---------------------------------------------------------------------------
+
+def insert_mind_state_snapshot(session_id: int, cycle_number: int,
+                                mind_state: str, mind_state_label: str,
+                                action_impulse: str = "none",
+                                crowd_heat: str = "neutral",
+                                signal_quality: float = 0.5,
+                                narrative_distortion: float = 0.0,
+                                clarity: int = 50,
+                                current_focus: str = None,
+                                reasoning_summary: str = None,
+                                fear_greed_value: int = None,
+                                noise_ratio: float = None,
+                                market_state: str = None,
+                                thoughts_json: str = None,
+                                concerns_json: str = None) -> int:
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        # Dedup: skip if same session + cycle already snapshotted in last 60s
+        existing = conn.execute(
+            """SELECT snapshot_id FROM mind_state_snapshots
+               WHERE session_id = ? AND cycle_number = ?
+               AND timestamp > datetime('now', '-60 seconds') LIMIT 1""",
+            (session_id, cycle_number),
+        ).fetchone()
+        if existing:
+            return existing[0]
+        cursor = conn.execute(
+            """INSERT INTO mind_state_snapshots
+               (session_id, timestamp, cycle_number, mind_state, mind_state_label,
+                action_impulse, crowd_heat, signal_quality, narrative_distortion,
+                clarity, current_focus, reasoning_summary, fear_greed_value,
+                noise_ratio, market_state, thoughts_json, concerns_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, now, cycle_number, mind_state, mind_state_label,
+             action_impulse, crowd_heat, signal_quality, narrative_distortion,
+             clarity, current_focus, reasoning_summary, fear_greed_value,
+             noise_ratio, market_state, thoughts_json, concerns_json)
+        )
+        return cursor.lastrowid
+
+
+def get_mind_state_history(session_id: int = None, limit: int = 50) -> list[dict]:
+    with get_db() as conn:
+        if session_id:
+            rows = conn.execute(
+                "SELECT * FROM mind_state_snapshots WHERE session_id = ? ORDER BY snapshot_id DESC LIMIT ?",
+                (session_id, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM mind_state_snapshots ORDER BY snapshot_id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+        return rows_to_dicts(rows)
+
+
+# ---------------------------------------------------------------------------
+# personality_snapshots helpers (v7.4 Chunk 2)
+# ---------------------------------------------------------------------------
+
+def insert_personality_snapshot(session_id: int, dominant_trait: str = None,
+                                patience_score: int = 50,
+                                aggression_control: int = 50,
+                                hype_resistance: int = 50,
+                                adaptability_score: int = 50,
+                                discipline_score: int = 50,
+                                self_correction_score: int = 50,
+                                risk_awareness_score: int = 50,
+                                oneliner: str = None,
+                                evidence_json: str = None) -> int:
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        # Dedup: skip if same session snapshotted in last 5 min
+        existing = conn.execute(
+            """SELECT snapshot_id FROM personality_snapshots
+               WHERE session_id = ? AND timestamp > datetime('now', '-300 seconds')
+               LIMIT 1""",
+            (session_id,)
+        ).fetchone()
+        if existing:
+            return existing[0]
+        cursor = conn.execute(
+            """INSERT INTO personality_snapshots
+               (session_id, timestamp, dominant_trait,
+                patience_score, aggression_control, hype_resistance,
+                adaptability_score, discipline_score, self_correction_score,
+                risk_awareness_score, oneliner, evidence_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, now, dominant_trait,
+             patience_score, aggression_control, hype_resistance,
+             adaptability_score, discipline_score, self_correction_score,
+             risk_awareness_score, oneliner, evidence_json)
+        )
+        return cursor.lastrowid
+
+
+def get_personality_history(session_id: int = None, limit: int = 50) -> list[dict]:
+    with get_db() as conn:
+        if session_id:
+            rows = conn.execute(
+                "SELECT * FROM personality_snapshots WHERE session_id = ? ORDER BY snapshot_id DESC LIMIT ?",
+                (session_id, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM personality_snapshots ORDER BY snapshot_id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+        return rows_to_dicts(rows)
+
+
+# ---------------------------------------------------------------------------
+# session_intents helpers (v7.4 Chunk 2)
+# ---------------------------------------------------------------------------
+
+def insert_session_intent(session_id: int, intent: str = "neutral",
+                          confidence: float = 0.3, reasoning: str = None,
+                          factors_json: str = None,
+                          context_json: str = None) -> int:
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        # Dedup: skip if same session + intent in last 10 min
+        existing = conn.execute(
+            """SELECT intent_id FROM session_intents
+               WHERE session_id = ? AND intent = ?
+               AND timestamp > datetime('now', '-600 seconds') LIMIT 1""",
+            (session_id, intent)
+        ).fetchone()
+        if existing:
+            return existing[0]
+        cursor = conn.execute(
+            """INSERT INTO session_intents
+               (session_id, timestamp, intent, confidence, reasoning,
+                factors_json, context_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, now, intent, confidence, reasoning,
+             factors_json, context_json)
+        )
+        return cursor.lastrowid
+
+
+def get_session_intents(session_id: int = None, limit: int = 20) -> list[dict]:
+    with get_db() as conn:
+        if session_id:
+            rows = conn.execute(
+                "SELECT * FROM session_intents WHERE session_id = ? ORDER BY intent_id DESC LIMIT ?",
+                (session_id, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM session_intents ORDER BY intent_id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+        return rows_to_dicts(rows)
+
+
+# ---------------------------------------------------------------------------
+# lifetime_mind_stats helpers (v7.4 Chunk 2)
+# ---------------------------------------------------------------------------
+
+def upsert_lifetime_stats(total_sessions: int = 0, total_cycles: int = 0,
+                          total_trades: int = 0, total_hours: float = 0.0,
+                          lifetime_pnl: float = 0.0,
+                          avg_evolution_score: float = 0.0,
+                          peak_evolution_score: int = 0,
+                          peak_level: str = "Seed",
+                          data_json: str = None) -> int:
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT stat_id FROM lifetime_mind_stats ORDER BY stat_id DESC LIMIT 1"
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE lifetime_mind_stats SET
+                   timestamp = ?, total_sessions = ?, total_cycles = ?,
+                   total_trades = ?, total_hours = ?, lifetime_pnl = ?,
+                   avg_evolution_score = ?, peak_evolution_score = ?,
+                   peak_level = ?, data_json = ?
+                   WHERE stat_id = ?""",
+                (now, total_sessions, total_cycles, total_trades, total_hours,
+                 lifetime_pnl, avg_evolution_score, peak_evolution_score,
+                 peak_level, data_json, existing[0])
+            )
+            return existing[0]
+        else:
+            cursor = conn.execute(
+                """INSERT INTO lifetime_mind_stats
+                   (timestamp, total_sessions, total_cycles, total_trades,
+                    total_hours, lifetime_pnl, avg_evolution_score,
+                    peak_evolution_score, peak_level, data_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (now, total_sessions, total_cycles, total_trades, total_hours,
+                 lifetime_pnl, avg_evolution_score, peak_evolution_score,
+                 peak_level, data_json)
+            )
+            return cursor.lastrowid
+
+
+def get_lifetime_stats() -> dict | None:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM lifetime_mind_stats ORDER BY stat_id DESC LIMIT 1"
+        ).fetchone()
+        if row:
+            return rows_to_dicts([row])[0]
+        return None

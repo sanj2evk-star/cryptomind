@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7 — Memory + Reflection + Self-Evolving Core + Mind Evolution",
-    version="7.3.0",
+    description="v7.4 — Observer Core: News Intelligence + Mind Feed + Bullshit Radar",
+    version="7.4.0",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -119,6 +119,17 @@ def startup():
     # Auto-start the trading loop (safe to call after sleep — restarts cleanly)
     auto_result = auto_trader.start("admin")
     print(f"[api] Auto-trader: {auto_result['status']} (every {auto_result.get('interval', 30)}s)")
+
+    # v7.4: Observer isolation guard — verify observer modules are clean
+    try:
+        import observer_guard
+        # Import observer modules so the guard can inspect them
+        import news_ingestor, news_classifier, bullshit_radar
+        import mind_state_engine, mind_feed_engine, action_narrator
+        observer_guard.run_all_checks()
+    except Exception as e:
+        print(f"[api] Observer guard check error (non-fatal): {e}")
+
     print(f"[api] CryptoMind v7 ready. Memory + Reflection active.")
 
 
@@ -1193,6 +1204,295 @@ def get_mind_timeline():
 
 
 # ---------------------------------------------------------------------------
+# v7.4: Observer Core — News, Mind Feed, Mind State, Bullshit Radar
+# ---------------------------------------------------------------------------
+
+def _observer_classify_and_feed():
+    """Internal: fetch news → classify → feed radar + mind feed + persist.
+    Returns (classified, radar, fear_greed).
+    """
+    import news_ingestor, news_classifier, bullshit_radar, mind_feed_engine
+
+    news_data  = news_ingestor.fetch_all()
+    headlines  = news_data.get("headlines", [])
+    fg         = news_data.get("fear_greed", {})
+    classified = news_classifier.classify_batch(headlines) if headlines else []
+
+    if classified:
+        bullshit_radar.feed(classified)
+        mind_feed_engine.on_news_classified(classified)
+
+        # Persist interesting/watched to DB
+        try:
+            import db as v7db
+            import session_manager
+            sid = session_manager.get_session_id()
+            if sid:
+                for c in classified:
+                    if c.get("verdict") in ("interesting", "watch"):
+                        v7db.insert_news_analysis(
+                            session_id=sid,
+                            headline=c.get("headline", ""),
+                            verdict=c.get("verdict", "noise"),
+                            source=c.get("source", ""),
+                            category=c.get("category", "general"),
+                            trust_score=c.get("trust", 0.5),
+                            novelty_score=c.get("novelty", 0.5),
+                            relevance_score=c.get("relevance", 0),
+                            impact_bias=c.get("impact_bias", "neutral"),
+                            impact_strength=c.get("impact_strength", 0),
+                            half_life=c.get("half_life_hours", 1),
+                            hype_score=c.get("hype_score", 0),
+                            bullshit_risk=c.get("bs_risk", 0),
+                            sentiment=c.get("sentiment", "neutral"),
+                            explanation=c.get("explanation"),
+                            accepted=1 if c.get("verdict") == "interesting" else 0,
+                            volatility_warning=1 if c.get("vol_warning") else 0,
+                            url=c.get("url"),
+                            original_timestamp=c.get("original_timestamp"),
+                        )
+        except Exception:
+            pass
+
+    # Update fear & greed in feed
+    if fg and fg.get("value") is not None:
+        mind_feed_engine.on_fear_greed(
+            fg.get("value", 50),
+            fg.get("classification", "Neutral"),
+            fg.get("direction", "flat"),
+        )
+
+    radar = bullshit_radar.compute()
+    if radar.get("hype_alert"):
+        mind_feed_engine.on_radar_alert(radar.get("level", "clear"),
+                                         radar.get("hype_reason"))
+
+    return classified, radar, fg
+
+
+@app.get("/v7/mind/feed")
+def get_mind_feed(
+    limit: int = Query(default=50, ge=1, le=200),
+    feed_type: str = Query(default=""),
+):
+    """Live mind feed — what the system is observing right now."""
+    try:
+        import mind_feed_engine
+        # Trigger a news cycle so feed has content
+        try:
+            _observer_classify_and_feed()
+        except Exception:
+            pass
+        feed    = mind_feed_engine.get_feed(limit=limit, feed_type=feed_type or None)
+        summary = mind_feed_engine.get_summary()
+        return {"feed": feed, "summary": summary}
+    except Exception as e:
+        return {"error": str(e), "feed": []}
+
+
+@app.get("/v7/mind/state")
+def get_observer_mind_state():
+    """Current mind state — mood, thoughts, concerns, clarity."""
+    try:
+        import mind_state_engine, mind_feed_engine
+        import news_ingestor, bullshit_radar
+
+        state = auto_trader.get_state()
+        mkt   = state.get("market_state", {})
+        pf    = state.get("portfolio", {})
+
+        # Get latest radar + fg
+        try:
+            _, radar, fg = _observer_classify_and_feed()
+        except Exception:
+            radar, fg = bullshit_radar.get_radar(), news_ingestor.get_fear_greed()
+
+        old_mood = mind_state_engine.get().get("mood", "idle_waiting")
+
+        mind = mind_state_engine.compute(
+            market_state=mkt.get("state", "SLEEPING"),
+            market_quality=mkt.get("confidence_score", 0),
+            exposure_pct=float(pf.get("exposure_pct", 0) if pf else 0),
+            recent_pnl=float(pf.get("realized_pnl", 0) if pf else 0),
+            win_rate=0.5,
+            total_trades=state.get("cycle_count", 0) and pf.get("total_trades", 0) or 0,
+            fear_greed=fg,
+            radar=radar,
+            cycle_count=state.get("cycle_count", 0),
+        )
+
+        # Feed mood change
+        new_mood = mind.get("mood", "idle_waiting")
+        mind_feed_engine.on_mind_state(
+            old_mood, new_mood,
+            mind.get("thoughts", []),
+            mind.get("concerns", []),
+            mind.get("opportunities", []),
+        )
+
+        return mind
+    except Exception as e:
+        return {"error": str(e), "mood": "idle_waiting"}
+
+
+@app.get("/v7/mind/radar")
+def get_radar():
+    """Bullshit radar — noise level in the information environment."""
+    try:
+        import bullshit_radar, news_ingestor
+
+        try:
+            _observer_classify_and_feed()
+        except Exception:
+            pass
+
+        radar = bullshit_radar.compute()
+        return {
+            **radar,
+            "summary_text": bullshit_radar.get_oneliner(),
+            "fear_greed":   news_ingestor.get_fear_greed(),
+            "stale":        news_ingestor.is_stale(),
+        }
+    except Exception as e:
+        return {"error": str(e), "level": "clear"}
+
+
+@app.get("/v7/news/latest")
+def get_news_latest(limit: int = Query(default=20, ge=1, le=50)):
+    """Latest classified news headlines."""
+    try:
+        import news_ingestor, news_classifier
+
+        news_data  = news_ingestor.fetch_all()
+        headlines  = news_data.get("headlines", [])
+        classified = news_classifier.classify_batch(headlines[:limit])
+        summary    = news_classifier.summarise_batch(classified)
+
+        return {
+            "headlines":    classified,
+            "summary":      summary,
+            "fear_greed":   news_data.get("fear_greed", {}),
+            "cached_count": news_data.get("cached_count", 0),
+            "stale":        news_data.get("stale", False),
+        }
+    except Exception as e:
+        return {"error": str(e), "headlines": []}
+
+
+@app.get("/v7/news/rejected")
+def get_news_rejected(limit: int = Query(default=30, ge=1, le=100)):
+    """News rejected or classified as noise — with reasons."""
+    try:
+        import news_ingestor, news_classifier
+
+        news_data  = news_ingestor.fetch_all()
+        headlines  = news_data.get("headlines", [])
+        classified = news_classifier.classify_batch(headlines)
+        rejected   = [c for c in classified if c["verdict"] in ("reject", "noise", "unclear")]
+
+        return {
+            "rejected": rejected[:limit],
+            "total":    len(rejected),
+            "stale":    news_data.get("stale", False),
+        }
+    except Exception as e:
+        return {"error": str(e), "rejected": []}
+
+
+@app.get("/v7/news/interesting")
+def get_news_interesting(limit: int = Query(default=20, ge=1, le=50)):
+    """News classified as interesting or worth watching — the signal."""
+    try:
+        import news_ingestor, news_classifier
+
+        news_data  = news_ingestor.fetch_all()
+        headlines  = news_data.get("headlines", [])
+        classified = news_classifier.classify_batch(headlines)
+        good       = [c for c in classified if c["verdict"] in ("interesting", "watch")]
+
+        return {
+            "interesting": good[:limit],
+            "total":       len(good),
+            "fear_greed":  news_data.get("fear_greed", {}),
+            "stale":       news_data.get("stale", False),
+        }
+    except Exception as e:
+        return {"error": str(e), "interesting": []}
+
+
+# ---------------------------------------------------------------------------
+# v7.4 Chunk 2: Personality, Session Intent, Milestones, Lifetime
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/mind/personality")
+def get_personality():
+    """System personality traits derived from real data."""
+    try:
+        import personality_engine
+        return personality_engine.compute()
+    except Exception as e:
+        return {"error": str(e), "traits": {}, "warming_up": True}
+
+
+@app.get("/v7/mind/session-intent")
+def get_session_intent():
+    """Current session posture — defensive, neutral, opportunistic, etc."""
+    try:
+        import session_intent_engine
+        result = session_intent_engine.compute()
+
+        # Persist intent to DB (non-fatal)
+        try:
+            import db, session_manager, json
+            sid = session_manager.get_session_id()
+            if sid and result.get("intent"):
+                db.insert_session_intent(
+                    session_id=sid,
+                    intent=result["intent"],
+                    confidence=result.get("confidence", 0.3),
+                    reasoning=result.get("reasoning"),
+                    factors_json=json.dumps(result.get("factors", [])),
+                    context_json=json.dumps(result.get("context", {})),
+                )
+        except Exception:
+            pass
+
+        return result
+    except Exception as e:
+        return {"error": str(e), "intent": "neutral", "warming_up": True}
+
+
+@app.get("/v7/mind/milestones")
+def get_milestones_endpoint(limit: int = Query(default=30, ge=1, le=100)):
+    """System milestones — auto-detected achievements from real data."""
+    try:
+        import milestone_engine
+
+        # Check for new milestones (rate-limited internally)
+        new = milestone_engine.check_and_record()
+        milestones = milestone_engine.get_milestones(limit=limit)
+        summary = milestone_engine.get_summary()
+
+        return {
+            "milestones": milestones,
+            "summary":    summary,
+            "new_count":  len(new),
+        }
+    except Exception as e:
+        return {"error": str(e), "milestones": []}
+
+
+@app.get("/v7/mind/lifetime")
+def get_lifetime():
+    """Lifetime mind stats aggregated across all sessions."""
+    try:
+        import lifetime_mind_aggregator
+        return lifetime_mind_aggregator.compute()
+    except Exception as e:
+        return {"error": str(e), "lifetime": {}}
+
+
+# ---------------------------------------------------------------------------
 # Static frontend serving (production desktop app)
 #
 # Serves the built React frontend so the Electron app can load everything
@@ -1224,7 +1524,7 @@ if _frontend_dir:
     _index_html = _frontend_dir / "index.html"
 
     # Known SPA routes that collide with API endpoints
-    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard", "/memory", "/mind"}
+    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard", "/memory", "/mind", "/lab"}
 
     class SPAMiddleware(BaseHTTPMiddleware):
         """Serve index.html for browser navigation to SPA routes.

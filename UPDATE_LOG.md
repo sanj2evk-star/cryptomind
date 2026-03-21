@@ -213,4 +213,83 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.4.0 — Observer Core (Chunk 1)
+**Date:** 2026-03-22
+**Commit:** *(pending)*
+
+**What changed:**
+- **`news_ingestor.py` (NEW — ~210 lines)**: Fetches crypto news from CryptoCompare, CoinGecko trending, Alternative.me Fear & Greed Index. Rate-limited (5min), deduped, cached in memory. Persists raw headlines to existing `news_events` table.
+- **`news_classifier.py` (NEW — ~230 lines)**: Rule-based headline classification — zero LLM calls, fully deterministic. Keyword banks for bullish/bearish/hype/noise/BTC-relevant signals. Produces: relevance, sentiment, impact, trust, novelty, hype_score, bs_risk, category, verdict (interesting/watch/reject/noise). Tone library with verdict+flavour keyed one-liners.
+- **`bullshit_radar.py` (NEW — ~195 lines)**: Tracks signal vs noise ratio, narrative distortion, crowd heat, signal quality. Levels: clear → mild → moderate → elevated → high → extreme. Feeds on classified news batches.
+- **`mind_state_engine.py` (NEW — ~240 lines)**: 8 moods (calm_observing, focused_selective, cautious_defensive, confident_steady, alert_volatile, skeptical_filtering, recovering_learning, idle_waiting). Each with label, sigil, description, color. Produces: action_impulse, clarity (0-100), current_focus, reasoning summary.
+- **`mind_feed_engine.py` (NEW — ~230 lines)**: Chronological observer feed combining news observations, trades, mood changes. 15 feed types with icon/color/label. Dedup window (45s). Cross-references via linked_news_event_id, linked_trade_id, linked_cycle_snapshot_id.
+- **`action_narrator.py` (NEW — ~160 lines)**: Read-only trade narration with template-based commentary. BUY/SELL/HOLD templates (high_conf, medium_conf, low_conf, probe, breakout, profit, stop, target, etc.). Anti-dopamine tone throughout.
+- **`db.py` (MODIFIED)**: 3 new tables (18: news_event_analysis, 19: mind_feed_events, 20: mind_state_snapshots) with full observer fields. 8 new indexes. 7 new helper functions.
+- **`api.py` (MODIFIED)**: 6 new endpoints: `/v7/mind/feed`, `/v7/mind/state`, `/v7/mind/radar`, `/v7/news/latest`, `/v7/news/rejected`, `/v7/news/interesting`. Internal `_observer_classify_and_feed()` orchestrator.
+- **`frontend/src/pages/Lab.jsx` (NEW — ~280 lines)**: Full Lab page with MoodSigil (8 SVGs), RadarBar, FGGauge, ClarityBar, FeedItem timeline, VBadge/SBadge. Layout: Hero mind state → 3-col (radar, F&G, side hustle) → 2-col (feed, interesting+rejected). Auto-polling at 10-30s intervals.
+- **`frontend/src/App.jsx` (MODIFIED)**: Added Lab import, route (`/lab`), and nav item (⬡ Lab).
+- **`config.py` + `session_manager.py`**: Version → 7.4.0
+
+**No trading logic changes.** No modifications to auto_trader.py, multi_strategy.py, paper_broker.py, or decision_engine.py. All 6 new modules are read-only observers.
+
+**What's right:**
+1. Pure observer layer — completely read-only, zero interference with trading core
+2. Rule-based classification — no LLM calls, fast, deterministic, explainable
+3. Anti-dopamine tone throughout — "Recycled narrative. Ignoring.", "Smells like paid content. Hard pass."
+4. Bullshit radar quantifies noise level — not just detecting noise, measuring it
+5. Mind state synthesizes multiple inputs into a single clear mood
+6. Action narrator comments on trades without influencing them
+7. Feed cross-references (linked_news_event_id, etc.) enable rich drill-down later
+8. All news sources are free APIs — no paid subscriptions needed
+
+**What could be improved:**
+1. News source diversity — only CryptoCompare + CoinGecko trending; could add RSS feeds or Twitter/X
+2. Classifier keyword banks could be richer — currently ~30-40 keywords per category
+3. Novelty detection is crude — just uses hype word count, could use headline similarity/dedup
+4. Mind state engine doesn't factor in time-of-day or market session (Asian/European/US)
+5. Feed persistence is selective — only "important" events saved to DB; might want full archive
+6. No WebSocket support — all polling-based; real-time feed would be better UX
+7. Lab page responsiveness — 3-column layout may need collapse points for iPad
+8. Bullshit radar history chart — currently snapshot only, no historical trend view
+
+**Deployment:** *(pending — awaiting user confirmation)*
+
+---
+
+## v7.4.0 — Observer Core Chunk 2: Personality + Session Intent
+**Date:** 2026-03-22
+**Commit:** *(pending)*
+
+**What changed:**
+- **`personality_engine.py` (NEW — ~250 lines)**: Derives 7 traits (patience, aggression_control, hype_resistance, adaptability, discipline, self_correction, risk_awareness) from behavior_profile, behavior_states, adaptation_journal, experience_memory, trade_ledger, and bullshit_radar. Every score is evidence-based — no random labels.
+- **`session_intent_engine.py` (NEW — ~240 lines)**: Generates daily posture (defensive/neutral/opportunistic/trend_friendly/headline_sensitive) from daily_bias, regime, performance, volatility, noise ratio, fear & greed. Weighted scoring with confidence.
+- **`milestone_engine.py` (NEW — ~230 lines)**: Auto-detects meaningful events: trade thresholds (10/25/50/100/250/500), memory depth, adaptation count, evolution level-ups, win rate, drawdown recovery, session longevity. Non-cheesy, factual milestones.
+- **`lifetime_mind_aggregator.py` (NEW — ~200 lines)**: Cross-session aggregation: lifetime totals, best session, skill averages from evolution snapshots, evolution curve for charting. Reuses mind_evolution compute functions.
+- **`db.py` (MODIFIED)**: 3 new tables (21: personality_snapshots, 22: session_intents, 23: lifetime_mind_stats) + 2 new indexes + 6 new helper functions with dedup guards. Total: 25 tables.
+- **`api.py` (MODIFIED)**: 4 new endpoints: `/v7/mind/personality`, `/v7/mind/session-intent`, `/v7/mind/milestones`, `/v7/mind/lifetime`.
+- **`observer_guard.py` (MODIFIED)**: Added 4 new Chunk 2 modules to guard whitelist.
+- **`frontend/src/pages/Lab.jsx` (MODIFIED)**: Added Personality card (dominant trait + supporting + bars), Session Intent card (icon + label + reasoning + factors), Milestones timeline (color-coded by type), Lifetime stats grid with aggregated numbers. All with warm-up states.
+
+**No trading logic changes.** No modifications to auto_trader.py, multi_strategy.py, paper_broker.py, or decision_engine.py. All 4 new modules are read-only observers.
+
+**What's right:**
+1. Every personality trait is computed from real DB data — zero fabrication
+2. Session intent uses weighted scoring from 8+ real signals — not random
+3. Milestones auto-detect from thresholds — no manual input needed
+4. Lifetime aggregator reuses mind_evolution — no duplicated logic
+5. All new DB inserts have dedup guards
+6. Observer guard confirms all 11 observer modules are clean
+7. Warm-up states everywhere — system is honest about insufficient data
+
+**What could be improved:**
+1. Personality snapshot persistence — currently only computed on-demand, not periodically saved
+2. Intent history visualization — session_intents table records history but no chart yet
+3. Milestone dedup uses title string matching — could use a hash-based approach
+4. Lifetime skill trend charts — data exists but frontend only shows text summary
+5. Cross-session personality drift — could track how traits change across versions
+
+**Deployment:** *(pending — awaiting user confirmation)*
+
+---
+
 *This log is maintained after every version update for future reference.*
