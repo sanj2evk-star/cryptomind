@@ -215,7 +215,7 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ## v7.4.0 — Observer Core (Chunk 1)
 **Date:** 2026-03-22
-**Commit:** *(pending)*
+**Commit:** `1c05f2e`
 
 **What changed:**
 - **`news_ingestor.py` (NEW — ~210 lines)**: Fetches crypto news from CryptoCompare, CoinGecko trending, Alternative.me Fear & Greed Index. Rate-limited (5min), deduped, cached in memory. Persists raw headlines to existing `news_events` table.
@@ -258,7 +258,7 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ## v7.4.0 — Observer Core Chunk 2: Personality + Session Intent
 **Date:** 2026-03-22
-**Commit:** *(pending)*
+**Commit:** `1c05f2e` (combined with Chunk 1 + Stabilization)
 
 **What changed:**
 - **`personality_engine.py` (NEW — ~250 lines)**: Derives 7 traits (patience, aggression_control, hype_resistance, adaptability, discipline, self_correction, risk_awareness) from behavior_profile, behavior_states, adaptation_journal, experience_memory, trade_ledger, and bullshit_radar. Every score is evidence-based — no random labels.
