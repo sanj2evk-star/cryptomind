@@ -288,13 +288,13 @@ A running record of every version update: what changed, what was reviewed, and d
 4. Lifetime skill trend charts — data exists but frontend only shows text summary
 5. Cross-session personality drift — could track how traits change across versions
 
-**Deployment:** Mac + Render (commit `e6fb6d6`)
+**Deployment:** Mac + Render (commits `1c05f2e` + `e6fb6d6`)
 
 ---
 
 ## v7.4.0 — Observer Core Chunk 3: Truth Validation + Deep Reflection
 **Date:** 2026-03-22
-**Commit:** *(pending)*
+**Commit:** `823fff6`
 
 **What changed:**
 - **`news_truth_validator.py` (NEW — ~200 lines)**: Compares expected sentiment bias from classified news against actual market movement at +5/+20/+100 cycle delayed windows. Classifies each as correct/wrong/mixed/faded. Movement thresholds: 0.15% minimum, 0.50% strong. Fade detection catches correct-then-reversed patterns.
@@ -326,7 +326,7 @@ A running record of every version update: what changed, what was reviewed, and d
 4. Context summary posture hint could incorporate truth review accuracy as a feedback signal
 5. Journal could track cross-day patterns (recurring mistakes, improving strengths)
 
-**Deployment:** *(pending — awaiting user confirmation)*
+**Deployment:** Mac + Render (commit `823fff6`)
 
 ---
 
