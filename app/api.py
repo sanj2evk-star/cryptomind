@@ -1254,6 +1254,15 @@ def _observer_classify_and_feed():
         except Exception:
             pass
 
+        # v7.4 Chunk 3: Create truth reviews for directional news
+        try:
+            import news_truth_validator
+            price = auto_trader.get_state().get("last_price", 0)
+            if sid and price > 0:
+                news_truth_validator.create_reviews_for_news(sid, classified, price)
+        except Exception:
+            pass
+
     # Update fear & greed in feed
     if fg and fg.get("value") is not None:
         mind_feed_engine.on_fear_greed(
@@ -1490,6 +1499,107 @@ def get_lifetime():
         return lifetime_mind_aggregator.compute()
     except Exception as e:
         return {"error": str(e), "lifetime": {}}
+
+
+# ---------------------------------------------------------------------------
+# v7.4 Chunk 3: Truth Validation, Context Summary, Journal, Reflections, Replay
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/news/truth-reviews")
+def get_truth_reviews(limit: int = Query(default=30, ge=1, le=100)):
+    """News truth validation — did our interpretation match reality?"""
+    try:
+        import news_truth_validator, session_manager
+
+        sid = session_manager.get_session_id()
+        # Evaluate pending reviews (rate-limited internally)
+        if sid:
+            try:
+                state = auto_trader.get_state()
+                price = state.get("last_price", 0)
+                cycle = state.get("cycle_count", 0)
+                if price > 0 and cycle > 0:
+                    news_truth_validator.evaluate_pending_reviews(sid, cycle, price)
+            except Exception:
+                pass
+
+        reviews = news_truth_validator.get_recent_reviews(session_id=sid, limit=limit)
+        stats = news_truth_validator.get_truth_stats()
+        warming = (stats.get("total_reviews", 0) or 0) == 0
+
+        return {
+            "reviews": reviews,
+            "stats": stats,
+            "warming_up": warming,
+        }
+    except Exception as e:
+        return {"error": str(e), "reviews": [], "stats": {}, "warming_up": True}
+
+
+@app.get("/v7/mind/context-summary")
+def get_context_summary():
+    """Daily context summary — market, trades, news vs price, posture hint."""
+    try:
+        import contextual_summary_engine
+        result = contextual_summary_engine.compute()
+        # Ensure warming_up key always exists
+        result.setdefault("warming_up", False)
+        return result
+    except Exception as e:
+        return {"error": str(e), "warming_up": True, "market": {}, "trades": {},
+                "news_vs_price": {}, "posture": {}}
+
+
+@app.get("/v7/mind/journal")
+def get_mind_journal(limit: int = Query(default=10, ge=1, le=50)):
+    """Daily journal — reflections, insights, mistakes, lessons."""
+    try:
+        import mind_journal_engine
+
+        # Generate today's entry (cached)
+        today = mind_journal_engine.generate()
+        today.setdefault("warming_up", False)
+        history = mind_journal_engine.get_journal_history(limit=limit)
+
+        return {
+            "today": today,
+            "history": history or [],
+        }
+    except Exception as e:
+        return {"error": str(e), "today": {"warming_up": True}, "history": []}
+
+
+@app.get("/v7/side-hustle/reflections")
+def get_trade_reflections(limit: int = Query(default=15, ge=1, le=50)):
+    """Per-trade reflections — entry timing, size, patience grading."""
+    try:
+        import action_reflection_engine
+
+        reflections = action_reflection_engine.reflect_on_recent_trades(limit=limit)
+        stats = action_reflection_engine.get_reflection_stats()
+        warming = len(reflections) == 0
+
+        return {
+            "reflections": reflections,
+            "stats": stats or {},
+            "warming_up": warming,
+        }
+    except Exception as e:
+        return {"error": str(e), "reflections": [], "stats": {}, "warming_up": True}
+
+
+@app.get("/v7/mind/replay")
+def get_replay():
+    """Session replay timeline — news → interpretation → action → outcome."""
+    try:
+        import replay_engine
+        result = replay_engine.build_replay()
+        result.setdefault("warming_up", True)
+        result.setdefault("timeline", [])
+        return result
+    except Exception as e:
+        return {"error": str(e), "timeline": [], "warming_up": True,
+                "total_markers": 0, "marker_types": {}}
 
 
 # ---------------------------------------------------------------------------

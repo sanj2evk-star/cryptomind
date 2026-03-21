@@ -22,6 +22,10 @@ Tables:
    21) personality_snapshots — periodic personality trait captures (v7.4 C2)
    22) session_intents      — daily posture records (v7.4 C2)
    23) lifetime_mind_stats  — cross-session aggregation cache (v7.4 C2)
+   24) news_truth_reviews   — delayed truth validation of news (v7.4 C3)
+   25) mind_journal_entries — daily reflections and insights (v7.4 C3)
+   26) action_reflections   — per-trade interpretation/grading (v7.4 C3)
+   27) replay_markers       — timeline reconstruction markers (v7.4 C3)
 """
 
 from __future__ import annotations
@@ -658,6 +662,94 @@ CREATE TABLE IF NOT EXISTS lifetime_mind_stats (
 CREATE INDEX IF NOT EXISTS idx_personality_snap_session ON personality_snapshots(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_intents_session ON session_intents(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_intents_ts ON session_intents(timestamp);
+
+-- 24) news_truth_reviews: delayed truth validation of news predictions (v7.4 Chunk 3)
+CREATE TABLE IF NOT EXISTS news_truth_reviews (
+    review_id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    analysis_id             INTEGER,
+    session_id              INTEGER,
+    headline                TEXT NOT NULL,
+    expected_bias           TEXT NOT NULL DEFAULT 'neutral',
+    review_window           INTEGER NOT NULL DEFAULT 5,
+    price_at_news           REAL,
+    price_at_review         REAL,
+    actual_move_pct         REAL,
+    verdict                 TEXT NOT NULL DEFAULT 'pending',
+    explanation             TEXT,
+    reviewed_at             TEXT,
+    created_at              TEXT NOT NULL,
+    FOREIGN KEY (analysis_id) REFERENCES news_event_analysis(analysis_id),
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- 25) mind_journal_entries: daily reflections and insights (v7.4 Chunk 3)
+CREATE TABLE IF NOT EXISTS mind_journal_entries (
+    entry_id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id              INTEGER,
+    journal_date            TEXT NOT NULL,
+    created_at              TEXT NOT NULL,
+    entry_type              TEXT NOT NULL DEFAULT 'daily',
+    key_insight             TEXT,
+    mistakes_text           TEXT,
+    lessons_text            TEXT,
+    bias_shifts_text        TEXT,
+    market_summary          TEXT,
+    mood_arc                TEXT,
+    trades_reflection       TEXT,
+    confidence              REAL NOT NULL DEFAULT 0.5,
+    data_json               TEXT,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- 26) action_reflections: per-trade interpretation and grading (v7.4 Chunk 3)
+CREATE TABLE IF NOT EXISTS action_reflections (
+    reflection_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id                INTEGER,
+    session_id              INTEGER,
+    timestamp               TEXT NOT NULL,
+    action                  TEXT NOT NULL,
+    entry_timing_grade      TEXT NOT NULL DEFAULT 'C',
+    size_grade              TEXT NOT NULL DEFAULT 'C',
+    patience_impact         TEXT NOT NULL DEFAULT 'neutral',
+    overall_grade           TEXT NOT NULL DEFAULT 'C',
+    reasoning               TEXT,
+    what_went_well          TEXT,
+    what_could_improve      TEXT,
+    data_json               TEXT,
+    FOREIGN KEY (trade_id) REFERENCES trade_ledger(trade_id),
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- 27) replay_markers: timeline reconstruction markers (v7.4 Chunk 3)
+CREATE TABLE IF NOT EXISTS replay_markers (
+    marker_id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id              INTEGER,
+    timestamp               TEXT NOT NULL,
+    marker_type             TEXT NOT NULL DEFAULT 'event',
+    cycle_number            INTEGER,
+    title                   TEXT NOT NULL,
+    detail                  TEXT,
+    linked_trade_id         INTEGER,
+    linked_news_analysis_id INTEGER,
+    linked_mind_state       TEXT,
+    price_at_marker         REAL,
+    mood_at_marker          TEXT,
+    importance              INTEGER NOT NULL DEFAULT 5,
+    data_json               TEXT,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- v7.4 Chunk 3 indexes
+CREATE INDEX IF NOT EXISTS idx_truth_reviews_analysis ON news_truth_reviews(analysis_id);
+CREATE INDEX IF NOT EXISTS idx_truth_reviews_verdict ON news_truth_reviews(verdict);
+CREATE INDEX IF NOT EXISTS idx_truth_reviews_session ON news_truth_reviews(session_id);
+CREATE INDEX IF NOT EXISTS idx_journal_entries_session ON mind_journal_entries(session_id);
+CREATE INDEX IF NOT EXISTS idx_journal_entries_date ON mind_journal_entries(journal_date);
+CREATE INDEX IF NOT EXISTS idx_action_reflections_trade ON action_reflections(trade_id);
+CREATE INDEX IF NOT EXISTS idx_action_reflections_session ON action_reflections(session_id);
+CREATE INDEX IF NOT EXISTS idx_replay_markers_session ON replay_markers(session_id);
+CREATE INDEX IF NOT EXISTS idx_replay_markers_cycle ON replay_markers(cycle_number);
+CREATE INDEX IF NOT EXISTS idx_replay_markers_type ON replay_markers(marker_type);
 """
 
 
@@ -2139,3 +2231,345 @@ def get_lifetime_stats() -> dict | None:
         if row:
             return rows_to_dicts([row])[0]
         return None
+
+
+# ---------------------------------------------------------------------------
+# cycle_snapshots range helper (v7.4 Chunk 3)
+# ---------------------------------------------------------------------------
+
+def get_cycle_snapshots_range(session_id: int, cycle_start: int,
+                               cycle_end: int) -> list[dict]:
+    """Get cycle snapshots within a cycle number range (inclusive)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM cycle_snapshots
+               WHERE session_id = ? AND cycle_number >= ? AND cycle_number <= ?
+               ORDER BY cycle_number ASC""",
+            (session_id, cycle_start, cycle_end)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_snapshot_at_cycle(session_id: int, cycle_number: int) -> dict | None:
+    """Get the snapshot closest to a specific cycle number."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT * FROM cycle_snapshots
+               WHERE session_id = ? AND cycle_number <= ?
+               ORDER BY cycle_number DESC LIMIT 1""",
+            (session_id, cycle_number)
+        ).fetchone()
+        return dict_from_row(row)
+
+
+# ---------------------------------------------------------------------------
+# news_truth_reviews helpers (v7.4 Chunk 3)
+# ---------------------------------------------------------------------------
+
+def insert_truth_review(session_id: int, headline: str, expected_bias: str,
+                        review_window: int = 5, analysis_id: int = None,
+                        price_at_news: float = None) -> int:
+    """Create a pending truth review. Returns review_id."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        # Dedup: same headline + window
+        existing = conn.execute(
+            """SELECT review_id FROM news_truth_reviews
+               WHERE headline = ? AND review_window = ? LIMIT 1""",
+            (headline, review_window)
+        ).fetchone()
+        if existing:
+            return existing[0]
+        cursor = conn.execute(
+            """INSERT INTO news_truth_reviews
+               (analysis_id, session_id, headline, expected_bias, review_window,
+                price_at_news, verdict, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)""",
+            (analysis_id, session_id, headline, expected_bias, review_window,
+             price_at_news, now)
+        )
+        return cursor.lastrowid
+
+
+def get_pending_truth_reviews(review_window: int = None) -> list[dict]:
+    """Get truth reviews that haven't been evaluated yet."""
+    with get_db() as conn:
+        if review_window:
+            rows = conn.execute(
+                """SELECT * FROM news_truth_reviews
+                   WHERE verdict = 'pending' AND review_window = ?
+                   ORDER BY created_at ASC LIMIT 100""",
+                (review_window,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM news_truth_reviews
+                   WHERE verdict = 'pending'
+                   ORDER BY created_at ASC LIMIT 100"""
+            ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def complete_truth_review(review_id: int, price_at_review: float,
+                          actual_move_pct: float, verdict: str,
+                          explanation: str = None) -> None:
+    """Complete a truth review with the actual outcome."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE news_truth_reviews SET
+               price_at_review = ?, actual_move_pct = ?,
+               verdict = ?, explanation = ?, reviewed_at = ?
+               WHERE review_id = ?""",
+            (price_at_review, actual_move_pct, verdict, explanation, now, review_id)
+        )
+
+
+def get_truth_reviews(session_id: int = None, verdict: str = None,
+                      limit: int = 50) -> list[dict]:
+    """Get truth reviews with optional filters."""
+    with get_db() as conn:
+        w, p = [], []
+        if session_id:
+            w.append("session_id = ?"); p.append(session_id)
+        if verdict:
+            w.append("verdict = ?"); p.append(verdict)
+        where = " WHERE " + " AND ".join(w) if w else ""
+        rows = conn.execute(
+            f"SELECT * FROM news_truth_reviews{where} ORDER BY review_id DESC LIMIT ?",
+            p + [limit]
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_truth_review_summary() -> dict:
+    """Summary stats for truth reviews."""
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN verdict = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN verdict = 'correct' THEN 1 ELSE 0 END) as correct,
+                SUM(CASE WHEN verdict = 'wrong' THEN 1 ELSE 0 END) as wrong,
+                SUM(CASE WHEN verdict = 'mixed' THEN 1 ELSE 0 END) as mixed,
+                SUM(CASE WHEN verdict = 'faded' THEN 1 ELSE 0 END) as faded,
+                SUM(CASE WHEN verdict = 'unclear' THEN 1 ELSE 0 END) as unclear,
+                AVG(CASE WHEN verdict NOT IN ('pending', 'unclear') THEN actual_move_pct END) as avg_move
+            FROM news_truth_reviews
+        """).fetchone()
+        return dict_from_row(row) if row else {}
+
+
+# ---------------------------------------------------------------------------
+# mind_journal_entries helpers (v7.4 Chunk 3)
+# ---------------------------------------------------------------------------
+
+def insert_journal_entry(session_id: int, journal_date: str,
+                          entry_type: str = "daily", **kwargs) -> int:
+    """Insert a journal entry. Dedup by session + date + type."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        existing = conn.execute(
+            """SELECT entry_id FROM mind_journal_entries
+               WHERE session_id = ? AND journal_date = ? AND entry_type = ?
+               LIMIT 1""",
+            (session_id, journal_date, entry_type)
+        ).fetchone()
+        if existing:
+            # Update existing entry
+            sets = ", ".join(f"{k} = ?" for k in kwargs)
+            vals = list(kwargs.values())
+            if sets:
+                conn.execute(
+                    f"UPDATE mind_journal_entries SET {sets} WHERE entry_id = ?",
+                    vals + [existing[0]]
+                )
+            return existing[0]
+        kwargs["session_id"] = session_id
+        kwargs["journal_date"] = journal_date
+        kwargs["entry_type"] = entry_type
+        kwargs["created_at"] = now
+        cols = ", ".join(kwargs.keys())
+        ph = ", ".join("?" for _ in kwargs)
+        cursor = conn.execute(
+            f"INSERT INTO mind_journal_entries ({cols}) VALUES ({ph})",
+            list(kwargs.values())
+        )
+        return cursor.lastrowid
+
+
+def get_journal_entries(session_id: int = None, limit: int = 20) -> list[dict]:
+    with get_db() as conn:
+        if session_id:
+            rows = conn.execute(
+                "SELECT * FROM mind_journal_entries WHERE session_id = ? ORDER BY entry_id DESC LIMIT ?",
+                (session_id, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM mind_journal_entries ORDER BY entry_id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_latest_journal_entry(session_id: int = None) -> dict | None:
+    with get_db() as conn:
+        if session_id:
+            row = conn.execute(
+                "SELECT * FROM mind_journal_entries WHERE session_id = ? ORDER BY entry_id DESC LIMIT 1",
+                (session_id,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM mind_journal_entries ORDER BY entry_id DESC LIMIT 1"
+            ).fetchone()
+        return dict_from_row(row)
+
+
+# ---------------------------------------------------------------------------
+# action_reflections helpers (v7.4 Chunk 3)
+# ---------------------------------------------------------------------------
+
+def insert_action_reflection(trade_id: int, session_id: int, action: str,
+                              entry_timing_grade: str = "C",
+                              size_grade: str = "C",
+                              patience_impact: str = "neutral",
+                              overall_grade: str = "C",
+                              reasoning: str = None,
+                              what_went_well: str = None,
+                              what_could_improve: str = None,
+                              data_json: str = None) -> int:
+    """Insert a trade reflection. Dedup by trade_id."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT reflection_id FROM action_reflections WHERE trade_id = ? LIMIT 1",
+            (trade_id,)
+        ).fetchone()
+        if existing:
+            return existing[0]
+        cursor = conn.execute(
+            """INSERT INTO action_reflections
+               (trade_id, session_id, timestamp, action,
+                entry_timing_grade, size_grade, patience_impact,
+                overall_grade, reasoning, what_went_well,
+                what_could_improve, data_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (trade_id, session_id, now, action,
+             entry_timing_grade, size_grade, patience_impact,
+             overall_grade, reasoning, what_went_well,
+             what_could_improve, data_json)
+        )
+        return cursor.lastrowid
+
+
+def get_action_reflections(session_id: int = None, limit: int = 30) -> list[dict]:
+    with get_db() as conn:
+        if session_id:
+            rows = conn.execute(
+                "SELECT * FROM action_reflections WHERE session_id = ? ORDER BY reflection_id DESC LIMIT ?",
+                (session_id, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM action_reflections ORDER BY reflection_id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_reflection_for_trade(trade_id: int) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM action_reflections WHERE trade_id = ? LIMIT 1",
+            (trade_id,)
+        ).fetchone()
+        return dict_from_row(row)
+
+
+def get_reflection_summary(session_id: int = None) -> dict:
+    """Grade distribution summary for action reflections."""
+    with get_db() as conn:
+        where = "WHERE session_id = ?" if session_id else ""
+        params = [session_id] if session_id else []
+        row = conn.execute(f"""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN overall_grade = 'A' THEN 1 ELSE 0 END) as grade_a,
+                SUM(CASE WHEN overall_grade = 'B' THEN 1 ELSE 0 END) as grade_b,
+                SUM(CASE WHEN overall_grade = 'C' THEN 1 ELSE 0 END) as grade_c,
+                SUM(CASE WHEN overall_grade = 'D' THEN 1 ELSE 0 END) as grade_d,
+                SUM(CASE WHEN overall_grade = 'F' THEN 1 ELSE 0 END) as grade_f,
+                SUM(CASE WHEN patience_impact = 'helped' THEN 1 ELSE 0 END) as patience_helped,
+                SUM(CASE WHEN patience_impact = 'hurt' THEN 1 ELSE 0 END) as patience_hurt
+            FROM action_reflections {where}
+        """, params).fetchone()
+        return dict_from_row(row) if row else {}
+
+
+# ---------------------------------------------------------------------------
+# replay_markers helpers (v7.4 Chunk 3)
+# ---------------------------------------------------------------------------
+
+def insert_replay_marker(session_id: int, title: str,
+                          marker_type: str = "event",
+                          cycle_number: int = None,
+                          detail: str = None,
+                          linked_trade_id: int = None,
+                          linked_news_analysis_id: int = None,
+                          linked_mind_state: str = None,
+                          price_at_marker: float = None,
+                          mood_at_marker: str = None,
+                          importance: int = 5,
+                          data_json: str = None) -> int:
+    """Insert a replay marker. Dedup by session + title + cycle."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        if cycle_number is not None:
+            existing = conn.execute(
+                """SELECT marker_id FROM replay_markers
+                   WHERE session_id = ? AND title = ? AND cycle_number = ? LIMIT 1""",
+                (session_id, title, cycle_number)
+            ).fetchone()
+            if existing:
+                return existing[0]
+        cursor = conn.execute(
+            """INSERT INTO replay_markers
+               (session_id, timestamp, marker_type, cycle_number, title, detail,
+                linked_trade_id, linked_news_analysis_id, linked_mind_state,
+                price_at_marker, mood_at_marker, importance, data_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, now, marker_type, cycle_number, title, detail,
+             linked_trade_id, linked_news_analysis_id, linked_mind_state,
+             price_at_marker, mood_at_marker, importance, data_json)
+        )
+        return cursor.lastrowid
+
+
+def get_replay_markers(session_id: int, limit: int = 100) -> list[dict]:
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM replay_markers
+               WHERE session_id = ?
+               ORDER BY COALESCE(cycle_number, 0) ASC, marker_id ASC
+               LIMIT ?""",
+            (session_id, limit)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_replay_timeline(session_id: int, cycle_start: int = 0,
+                         cycle_end: int = 999999) -> list[dict]:
+    """Get replay markers within a cycle range, plus linked snapshots."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM replay_markers
+               WHERE session_id = ?
+               AND COALESCE(cycle_number, 0) >= ?
+               AND COALESCE(cycle_number, 999999) <= ?
+               ORDER BY COALESCE(cycle_number, 0) ASC, importance DESC
+               LIMIT 200""",
+            (session_id, cycle_start, cycle_end)
+        ).fetchall()
+        return rows_to_dicts(rows)

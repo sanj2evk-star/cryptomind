@@ -288,6 +288,44 @@ A running record of every version update: what changed, what was reviewed, and d
 4. Lifetime skill trend charts — data exists but frontend only shows text summary
 5. Cross-session personality drift — could track how traits change across versions
 
+**Deployment:** Mac + Render (commit `e6fb6d6`)
+
+---
+
+## v7.4.0 — Observer Core Chunk 3: Truth Validation + Deep Reflection
+**Date:** 2026-03-22
+**Commit:** *(pending)*
+
+**What changed:**
+- **`news_truth_validator.py` (NEW — ~200 lines)**: Compares expected sentiment bias from classified news against actual market movement at +5/+20/+100 cycle delayed windows. Classifies each as correct/wrong/mixed/faded. Movement thresholds: 0.15% minimum, 0.50% strong. Fade detection catches correct-then-reversed patterns.
+- **`contextual_summary_engine.py` (NEW — ~220 lines)**: Daily context summary with 4 sections: market behavior (dominant regime, quality, volatility, trend), trade summary (count, PnL, win rate, best strategy), news-vs-price alignment check (aligned/divergent/neutral), and next-day posture hint. Stateless compute, 2-min cache.
+- **`mind_journal_engine.py` (NEW — ~230 lines)**: Daily journal with key insight, mistakes, lessons, mood arc, bias shifts. Derives all content from trades, snapshots, memories, reviews, mind states, and intents. Persists to DB with dedup by session+date+type.
+- **`action_reflection_engine.py` (NEW — ~240 lines)**: Per-trade grading: entry timing (A-F from signal score + confidence + regime + market quality), size appropriateness (probe vs full matching conviction), patience impact (helped/hurt/neutral from post-trade price movement). Overall grade composited with timing weighted 2x. Persists to DB with dedup by trade_id.
+- **`replay_engine.py` (NEW — ~200 lines)**: Reconstructs session timeline from 5 sources: trades, classified news, mind state shifts, milestones, regime changes. Each gets a typed marker with importance score. Sorted chronologically for timeline display.
+- **`db.py` (MODIFIED)**: 4 new tables (24: news_truth_reviews, 25: mind_journal_entries, 26: action_reflections, 27: replay_markers) + 10 new indexes + cycle_snapshots range helpers (get_cycle_snapshots_range, get_snapshot_at_cycle) + ~15 new helper functions with dedup guards. Total: 29 tables.
+- **`api.py` (MODIFIED)**: 5 new endpoints: `/v7/news/truth-reviews`, `/v7/mind/context-summary`, `/v7/mind/journal`, `/v7/side-hustle/reflections`, `/v7/mind/replay`. Truth review creation integrated into _observer_classify_and_feed.
+- **`observer_guard.py` (MODIFIED)**: Added 5 new Chunk 3 modules + 4 new observer-owned tables to guard whitelist.
+- **`frontend/src/pages/Lab.jsx` (MODIFIED)**: 5 new sections: Context Summary card (market/trades/news-vs-price/posture), Daily Journal card (insight/mood/mistakes/lessons), Truth Validation panel (accuracy stats + review cards with verdict badges), Action Reflections panel (grade distribution + per-trade grading), Session Replay timeline (chronological markers with color-coded dots and importance stars).
+
+**No trading logic changes.** All 5 new modules are read-only observers.
+
+**What's right:**
+1. Truth validation uses delayed data only — no look-ahead bias
+2. All verdicts come with plain-english explanations
+3. Trade grading is evidence-based from real scores/confidence/regime
+4. Journal deduplicates by date — one entry per day, updated if data changes
+5. Replay timeline assembles 5 data sources into coherent chronology
+6. Observer guard now covers 16 modules and 8 observer-owned tables
+7. All new DB inserts have dedup guards
+8. Warm-up states on every new panel
+
+**What could be improved:**
+1. Truth reviews currently create reviews for all 3 windows at once — could be staggered
+2. Action reflection patience assessment needs more post-trade data for accuracy
+3. Replay timeline doesn't yet link causally (news → interpretation → action chain)
+4. Context summary posture hint could incorporate truth review accuracy as a feedback signal
+5. Journal could track cross-day patterns (recurring mistakes, improving strengths)
+
 **Deployment:** *(pending — awaiting user confirmation)*
 
 ---

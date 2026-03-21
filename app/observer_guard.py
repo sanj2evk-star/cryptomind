@@ -32,6 +32,11 @@ OBSERVER_MODULES = {
     "session_intent_engine",
     "milestone_engine",
     "lifetime_mind_aggregator",
+    "news_truth_validator",
+    "contextual_summary_engine",
+    "mind_journal_engine",
+    "action_reflection_engine",
+    "replay_engine",
 }
 
 # Execution-side modules that observers must NEVER import
@@ -69,6 +74,10 @@ OBSERVER_TABLES = {
     "news_event_analysis",
     "mind_feed_events",
     "mind_state_snapshots",
+    "news_truth_reviews",
+    "mind_journal_entries",
+    "action_reflections",
+    "replay_markers",
 }
 
 # ---------------------------------------------------------------------------

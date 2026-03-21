@@ -239,6 +239,11 @@ export default function Lab() {
   const {data:intentD}       = useApi("/v7/mind/session-intent", 30000);
   const {data:milestonesD}   = useApi("/v7/mind/milestones", 60000);
   const {data:lifetimeD}     = useApi("/v7/mind/lifetime", 60000);
+  const {data:truthD}        = useApi("/v7/news/truth-reviews?limit=15", 45000);
+  const {data:contextD}      = useApi("/v7/mind/context-summary", 60000);
+  const {data:journalD}      = useApi("/v7/mind/journal", 60000);
+  const {data:reflectionsD}  = useApi("/v7/side-hustle/reflections?limit=10", 45000);
+  const {data:replayD}       = useApi("/v7/mind/replay", 60000);
 
   const mood        = mindState?.mood || "idle_waiting";
   const moodLabel   = mindState?.mood_label || "Starting up…";
@@ -271,6 +276,15 @@ export default function Lab() {
   const milestones   = milestonesD?.milestones || [];
   const lifetime     = lifetimeD?.lifetime || {};
   const lifetimeCurve = lifetimeD?.evolution_curve || [];
+
+  // Chunk 3 data
+  const truthReviews = truthD?.reviews || [];
+  const truthStats   = truthD?.stats || {};
+  const ctxSummary   = contextD || {};
+  const journalToday = journalD?.today || {};
+  const reflections  = reflectionsD?.reflections || [];
+  const reflStats    = reflectionsD?.stats || {};
+  const replayTL     = replayD?.timeline || [];
 
   // Detect warm-up: no mind state data yet, or error
   const isWarmingUp = !mindState || hasError;
@@ -594,6 +608,252 @@ export default function Lab() {
             </>
           )}
         </div>
+      </div>
+
+      {/* ══════════ Chunk 3: Truth Validation + Deep Reflection ══════════ */}
+
+      {/* ── Context Summary + Journal ── */}
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))",
+        gap:8,marginTop:8,
+      }}>
+
+        {/* Context Summary */}
+        <div style={CARD}>
+          <div style={LBL}>Daily Context Summary</div>
+          {ctxSummary.warming_up ? (
+            <WarmUp
+              text="Building today's context summary…"
+              sub="Needs enough market data and trades."
+            />
+          ) : (
+            <>
+              {ctxSummary.market && (
+                <div style={{marginBottom:8}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"var(--text-muted)",marginBottom:2}}>Market</div>
+                  <div style={{fontSize:11,color:"var(--text)",lineHeight:1.5}}>{ctxSummary.market.summary}</div>
+                </div>
+              )}
+              {ctxSummary.trades && ctxSummary.trades.total > 0 && (
+                <div style={{marginBottom:8}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"var(--text-muted)",marginBottom:2}}>Trades</div>
+                  <div style={{fontSize:11,color:"var(--text)",lineHeight:1.5}}>{ctxSummary.trades.summary}</div>
+                </div>
+              )}
+              {ctxSummary.news_vs_price && (
+                <div style={{marginBottom:8}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"var(--text-muted)",marginBottom:2}}>News vs Price</div>
+                  <div style={{fontSize:11,color:"var(--text)",lineHeight:1.5}}>{ctxSummary.news_vs_price.summary}</div>
+                  {ctxSummary.news_vs_price.alignment && (
+                    <span style={{
+                      display:"inline-block",marginTop:3,padding:"1px 6px",borderRadius:3,fontSize:9,fontWeight:600,
+                      background:ctxSummary.news_vs_price.alignment==="aligned"?"#22c55e18":ctxSummary.news_vs_price.alignment==="divergent"?"#ef444418":"var(--bg)",
+                      color:ctxSummary.news_vs_price.alignment==="aligned"?"#22c55e":ctxSummary.news_vs_price.alignment==="divergent"?"#ef4444":"var(--text-muted)",
+                    }}>{ctxSummary.news_vs_price.alignment}</span>
+                  )}
+                </div>
+              )}
+              {ctxSummary.posture && (
+                <div style={{padding:"6px 8px",borderRadius:4,background:"var(--bg)",marginTop:4}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#8b5cf6",marginBottom:2}}>Next-Day Posture Hint</div>
+                  <div style={{fontSize:11,color:"var(--text)"}}>{ctxSummary.posture.summary}</div>
+                  <div style={{fontSize:9,color:"var(--text-muted)",marginTop:2}}>
+                    Posture: <b>{ctxSummary.posture.posture}</b> · Confidence: <b>{((ctxSummary.posture.confidence||0)*100).toFixed(0)}%</b>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Journal */}
+        <div style={CARD}>
+          <div style={LBL}>Daily Journal</div>
+          {journalToday.warming_up ? (
+            <WarmUp
+              text="Journal is building…"
+              sub="Reflections appear once there's enough activity."
+            />
+          ) : (
+            <>
+              {journalToday.key_insight && (
+                <div style={{marginBottom:8,padding:"6px 8px",borderLeft:"3px solid #8b5cf6",background:"var(--bg)",borderRadius:"0 4px 4px 0"}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#8b5cf6",marginBottom:2}}>Key Insight</div>
+                  <div style={{fontSize:11,color:"var(--text)",lineHeight:1.5}}>{journalToday.key_insight}</div>
+                </div>
+              )}
+              {journalToday.mood_arc && (
+                <div style={{fontSize:11,color:"var(--text-muted)",marginBottom:6,lineHeight:1.4}}>
+                  {journalToday.mood_arc}
+                </div>
+              )}
+              {journalToday.mistakes_text && journalToday.mistakes_text !== "No obvious mistakes detected — either a clean session or not enough data." && (
+                <div style={{marginBottom:6}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#ef4444",marginBottom:1}}>Mistakes</div>
+                  <div style={{fontSize:10,color:"var(--text-muted)",lineHeight:1.4}}>{journalToday.mistakes_text}</div>
+                </div>
+              )}
+              {journalToday.lessons_text && journalToday.lessons_text !== "No clear lessons yet — need more trading data." && (
+                <div style={{marginBottom:6}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#22c55e",marginBottom:1}}>Lessons</div>
+                  <div style={{fontSize:10,color:"var(--text-muted)",lineHeight:1.4}}>{journalToday.lessons_text}</div>
+                </div>
+              )}
+              {journalToday.bias_shifts_text && (
+                <div style={{fontSize:10,color:"var(--text-muted)",marginTop:4}}>{journalToday.bias_shifts_text}</div>
+              )}
+              {journalToday.trades_reflection && (
+                <div style={{fontSize:10,color:"var(--text-muted)",marginTop:4,paddingTop:4,borderTop:"1px solid var(--border)"}}>
+                  {journalToday.trades_reflection}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Truth Reviews + Action Reflections ── */}
+      <div style={{
+        display:"grid",
+        gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))",
+        gap:8,marginTop:8,
+      }}>
+
+        {/* Truth Reviews */}
+        <div style={{...CARD,maxHeight:380,overflowY:"auto"}}>
+          <div style={{...LBL,display:"flex",justifyContent:"space-between"}}>
+            <span>Truth Validation</span>
+            {truthStats.completed > 0 && (
+              <span style={{fontWeight:400,color:truthStats.accuracy_pct>=50?"#22c55e":"#ef4444"}}>
+                {truthStats.accuracy_pct}% accurate
+              </span>
+            )}
+          </div>
+          {truthReviews.length === 0 ? (
+            <WarmUp
+              text="No truth reviews yet."
+              sub="As interesting news arrives, we'll track whether it predicted correctly."
+            />
+          ) : (
+            <>
+              {truthStats.completed > 0 && (
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",fontSize:10,color:"var(--text-muted)",marginBottom:8}}>
+                  <span>✓ {truthStats.correct||0}</span>
+                  <span>✗ {truthStats.wrong||0}</span>
+                  <span>? {truthStats.unclear||0}</span>
+                  <span>≈ {truthStats.mixed||0}</span>
+                  <span>↻ {truthStats.faded||0}</span>
+                  <span>⏳ {truthStats.pending||0}</span>
+                </div>
+              )}
+              {truthReviews.slice(0,10).map((r,i)=>{
+                const vc = {correct:"#22c55e",wrong:"#ef4444",mixed:"#eab308",unclear:"#8b5cf6",faded:"#f97316",pending:"#6b7280"}[r.verdict]||"#6b7280";
+                return (
+                  <div key={i} style={{padding:"5px 0",borderBottom:"1px solid var(--border)"}}>
+                    <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:2}}>
+                      <span style={{padding:"1px 5px",borderRadius:3,fontSize:9,fontWeight:600,background:`${vc}18`,color:vc}}>{r.verdict}</span>
+                      <span style={{fontSize:9,color:"var(--text-muted)"}}>+{r.review_window} cycles</span>
+                      {r.actual_move_pct!=null && <span style={{fontSize:9,color:r.actual_move_pct>0?"#22c55e":"#ef4444"}}>{r.actual_move_pct>0?"+":""}{r.actual_move_pct?.toFixed(2)}%</span>}
+                      {r.confidence && <span style={{fontSize:8,color:"var(--text-muted)",opacity:0.7}}>{r.confidence}</span>}
+                    </div>
+                    <div style={{fontSize:10,color:"var(--text)",lineHeight:1.3}}>{r.headline?.slice(0,80)}{r.headline?.length>80?"…":""}</div>
+                    {r.explanation && <div style={{fontSize:9,color:"var(--text-muted)",marginTop:1,fontStyle:"italic"}}>{r.explanation}</div>}
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+
+        {/* Action Reflections */}
+        <div style={{...CARD,maxHeight:380,overflowY:"auto"}}>
+          <div style={{...LBL,display:"flex",justifyContent:"space-between"}}>
+            <span>Trade Reflections</span>
+            {reflStats.total > 0 && (
+              <span style={{fontWeight:400}}>{reflStats.total} graded</span>
+            )}
+          </div>
+          {reflections.length === 0 ? (
+            <WarmUp
+              text="No trade reflections yet."
+              sub="Each trade gets graded on timing, size, and patience."
+            />
+          ) : (
+            <>
+              {reflStats.total > 0 && (
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",fontSize:10,color:"var(--text-muted)",marginBottom:8}}>
+                  {["A","B","C","D","F"].map(g=>{
+                    const cnt = reflStats[`grade_${g.toLowerCase()}`]||0;
+                    if(!cnt) return null;
+                    const gc = {A:"#22c55e",B:"#84cc16",C:"#eab308",D:"#f97316",F:"#ef4444"}[g];
+                    return <span key={g} style={{color:gc,fontWeight:600}}>{g}:{cnt}</span>;
+                  })}
+                </div>
+              )}
+              {reflections.slice(0,8).map((r,i)=>{
+                const gc = {A:"#22c55e",B:"#84cc16",C:"#eab308",D:"#f97316",F:"#ef4444"}[r.overall_grade]||"#6b7280";
+                return (
+                  <div key={i} style={{padding:"6px 0",borderBottom:"1px solid var(--border)"}}>
+                    <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:2}}>
+                      <span style={{fontSize:14,fontWeight:800,color:gc}}>{r.overall_grade}</span>
+                      <span style={{fontSize:11,fontWeight:600,color:"var(--text)"}}>{r.action} #{r.trade_id}</span>
+                      <span style={{fontSize:9,color:"var(--text-muted)"}}>
+                        T:{r.entry_timing_grade} S:{r.size_grade} P:{r.patience_impact==="helped"?"✓":r.patience_impact==="hurt"?"✗":"—"}
+                        {r.confidence&&r.confidence!=="high"&&<span style={{marginLeft:3,opacity:0.7}}>({r.confidence})</span>}
+                      </span>
+                    </div>
+                    {r.what_went_well && r.what_went_well !== "No clear strengths in this trade." && (
+                      <div style={{fontSize:10,color:"#22c55e",lineHeight:1.3}}>+ {r.what_went_well.slice(0,100)}</div>
+                    )}
+                    {r.what_could_improve && r.what_could_improve !== "No obvious improvements needed." && (
+                      <div style={{fontSize:10,color:"#f97316",lineHeight:1.3}}>− {r.what_could_improve.slice(0,100)}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Replay Timeline ── */}
+      <div style={{...CARD,marginTop:8,maxHeight:420,overflowY:"auto"}}>
+        <div style={{...LBL,display:"flex",justifyContent:"space-between"}}>
+          <span>Session Replay</span>
+          <span style={{fontWeight:400}}>{replayTL.length} events</span>
+        </div>
+        {replayTL.length === 0 ? (
+          <WarmUp
+            text="Replay timeline is building…"
+            sub="News, trades, mood shifts, and milestones will appear here chronologically."
+          />
+        ) : (
+          <div style={{position:"relative",paddingLeft:16}}>
+            <div style={{position:"absolute",left:5,top:0,bottom:0,width:2,background:"var(--border)"}}/>
+            {replayTL.slice(0,30).map((m,i)=>{
+              const tc = {
+                trade:"#3b82f6",news:"#8b5cf6",mood_shift:"#d97706",
+                milestone:"#22c55e",regime_change:"#f97316",event:"#6b7280",
+              }[m.marker_type]||"#6b7280";
+              const icon = {trade:"◉",news:"◆",mood_shift:"◈",milestone:"★",regime_change:"▲",event:"·"}[m.marker_type]||"·";
+              return (
+                <div key={i} style={{position:"relative",paddingBottom:10,paddingLeft:12}}>
+                  <div style={{
+                    position:"absolute",left:-3,top:3,width:8,height:8,
+                    borderRadius:"50%",background:tc,border:"2px solid var(--surface)",
+                  }}/>
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <span style={{fontSize:11,color:tc,fontWeight:600}}>{icon}</span>
+                    <span style={{fontSize:11,color:"var(--text)",fontWeight:500}}>{m.title}</span>
+                    {m.importance>=7 && <span style={{fontSize:8,color:tc,fontWeight:700}}>★</span>}
+                  </div>
+                  {m.detail && <div style={{fontSize:10,color:"var(--text-muted)",lineHeight:1.3,marginTop:1}}>{m.detail}</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </>
   );
