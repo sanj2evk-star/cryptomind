@@ -177,12 +177,20 @@ def on_news_classified(classified: list[dict]) -> int:
             det = "Filtered as noise."
 
         if _add(ft, h, detail=det, meta={
-            "sentiment":  c.get("sentiment"),
-            "impact":     c.get("impact"),
-            "bs_risk":    c.get("bs_risk"),
-            "source":     src,
-            "category":   cat,
-            "verdict":    v,
+            "sentiment":       c.get("sentiment"),
+            "impact":          c.get("impact"),
+            "bs_risk":         c.get("bs_risk"),
+            "source":          src,
+            "category":        cat,
+            "verdict":         v,
+            "trust":           c.get("trust"),
+            "relevance":       c.get("relevance"),
+            "hype_score":      c.get("hype_score"),
+            "url":             c.get("url"),
+            "body":            (c.get("body") or "")[:300] or None,
+            "reasoning_text":  c.get("reasoning_text"),
+            "bullish_signals": c.get("bullish_signals", []),
+            "bearish_signals": c.get("bearish_signals", []),
         }):
             added += 1
     return added

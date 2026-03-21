@@ -83,8 +83,13 @@ def initialize() -> dict:
 
     elif active and active["app_version"] != APP_VERSION:
         # VERSION UPGRADE — close old session, start new one
+        # Identity + portfolio persist: do NOT reset global state or finances
         old_version = active["app_version"]
         old_session = active["session_id"]
+
+        # Snapshot financial state BEFORE closing
+        _preserve_portfolio_on_upgrade(old_session, old_version, APP_VERSION)
+
         db.close_session(
             old_session,
             notes=f"Auto-closed: upgrade from v{old_version} to v{APP_VERSION}"
@@ -95,8 +100,14 @@ def initialize() -> dict:
         summary["from_version"] = old_version
         summary["closed_session"] = old_session
         summary["session_id"] = _current_session_id
+
+        # Continuity: increment lifetime identity session count
+        db.increment_identity_counters(sessions=1)
+        db.upsert_lifetime_identity(last_version=APP_VERSION)
+
         print(f"[session] Upgraded v{old_version} → v{APP_VERSION}. "
-              f"Closed session #{old_session}, opened #{_current_session_id}")
+              f"Closed session #{old_session}, opened #{_current_session_id}. "
+              f"Identity + portfolio preserved.")
 
     else:
         # NEW INSTALL or first v7 boot
@@ -139,13 +150,61 @@ def initialize() -> dict:
             current_version=APP_VERSION,
         )
 
-    # 4. Create default behavior profile if none exists
+    # 4a. Initialize lifetime portfolio if needed
+    lt_portfolio = db.get_lifetime_portfolio()
+    if not lt_portfolio:
+        # Double-check: also verify no initial_funding already in capital_ledger
+        # (guards against row deletion + re-creation)
+        existing_funding = [e for e in db.get_capital_events(limit=100)
+                            if e.get("event_type") == "initial_funding"]
+        if existing_funding:
+            # Portfolio row was deleted but funding was logged — re-create from last known state
+            last_funding = existing_funding[0]
+            balance = last_funding.get("balance_after") or last_funding.get("amount", 100)
+            db.upsert_lifetime_portfolio(cash=balance, total_equity=balance, peak_equity=balance)
+            print(f"[session] Lifetime portfolio re-created from existing funding: ${balance}")
+        else:
+            # True first boot — seed from INITIAL_BALANCE
+            from config import INITIAL_BALANCE
+            db.upsert_lifetime_portfolio(cash=INITIAL_BALANCE, total_equity=INITIAL_BALANCE,
+                                          peak_equity=INITIAL_BALANCE)
+            db.insert_capital_event(
+                event_type="initial_funding", amount=INITIAL_BALANCE,
+                balance_after=INITIAL_BALANCE, reason="System initial funding",
+                session_id=_current_session_id, version=APP_VERSION,
+            )
+            print(f"[session] Lifetime portfolio initialized: ${INITIAL_BALANCE}")
+
+    # 4b. Initialize / update lifetime identity (never reset, only create once)
+    identity = db.get_lifetime_identity()
+    if not identity:
+        # First boot ever — seed from system state if available
+        init_cycles = system.get("total_lifetime_cycles", 0) if system else 0
+        init_trades = system.get("total_lifetime_trades", 0) if system else 0
+        # Count only real sessions (exclude pre-v7 archives)
+        all_sessions = db.get_all_sessions()
+        real_sessions = [s for s in (all_sessions or [])
+                         if s.get("app_version", "") != "pre-v7"]
+        init_sessions = max(1, len(real_sessions))
+        db.upsert_lifetime_identity(
+            total_cycles=init_cycles,
+            total_trades=init_trades,
+            total_sessions=init_sessions,
+            last_version=APP_VERSION,
+        )
+        print(f"[session] Lifetime identity initialized: {init_cycles} cycles, "
+              f"{init_trades} trades, {init_sessions} sessions")
+    else:
+        # Only update version — never re-count sessions/cycles on resume
+        db.upsert_lifetime_identity(last_version=APP_VERSION)
+
+    # 5. Create default behavior profile if none exists
     profile = db.get_active_profile(_current_session_id)
     if not profile:
         db.upsert_behavior_profile(_current_session_id)
         print(f"[session] Created default behavior profile")
 
-    # 5. v7.1: Create default behavior state if none exists
+    # 6. v7.1: Create default behavior state if none exists
     bstate = db.get_behavior_state(_current_session_id)
     if not bstate:
         db.upsert_behavior_state(_current_session_id, cycle_number=0)
@@ -186,8 +245,9 @@ def on_cycle_complete(cycle_number: int, indicators: dict, decision: dict,
     now = datetime.now(timezone.utc).isoformat()
     elapsed_hours = (time.time() - _boot_time) / 3600
 
-    # Update system state
+    # Update system state + lifetime identity
     db.increment_system_counters(cycles=1)
+    db.increment_identity_counters(cycles=1)
     db.upsert_system_state(
         last_cycle_number=cycle_number,
         current_regime=regime,
@@ -228,6 +288,10 @@ def on_cycle_complete(cycle_number: int, indicators: dict, decision: dict,
         blocked_trade_reason=blocked_reason,
         short_summary=_make_cycle_summary(action, score, regime, price),
     )
+
+    # v7.4.1: Sync lifetime portfolio every 10 cycles
+    if cycle_number > 0 and cycle_number % 10 == 0:
+        sync_portfolio_snapshot(portfolio, price)
 
     # v7.3: Take evolution snapshot every 100 cycles
     if cycle_number > 0 and cycle_number % 100 == 0:
@@ -283,6 +347,7 @@ def on_trade_executed(action: str, price: float, qty: float, dollar_size: float,
 
     # Update lifetime trade count
     db.increment_system_counters(trades=1)
+    db.increment_identity_counters(trades=1)
 
     return trade_id
 
@@ -329,6 +394,98 @@ def get_system_age() -> dict:
 def get_session_archive() -> list[dict]:
     """Get all sessions for the archive view."""
     return db.get_all_sessions()
+
+
+# ---------------------------------------------------------------------------
+# Lifetime financial continuity
+# ---------------------------------------------------------------------------
+
+def _preserve_portfolio_on_upgrade(old_session_id: int, old_version: str, new_version: str):
+    """Snapshot portfolio state into lifetime_portfolio before version upgrade.
+    Ensures cash, holdings, PnL, counters all persist."""
+    try:
+        # Capture current financial state for the upgrade log
+        lt_portfolio = db.get_lifetime_portfolio()
+        balance_snapshot = lt_portfolio.get("total_equity") if lt_portfolio else None
+        cash_snapshot = lt_portfolio.get("cash", 0) if lt_portfolio else 0
+
+        # Log the version transition with actual financial snapshot
+        db.insert_capital_event(
+            event_type="version_upgrade",
+            amount=0,
+            balance_after=balance_snapshot,
+            reason=f"Upgrade from v{old_version} to v{new_version}",
+            session_id=old_session_id,
+            version=new_version,
+            notes=f"Session #{old_session_id} closed. Cash: ${cash_snapshot:.2f}, Equity: ${balance_snapshot:.2f}" if balance_snapshot else f"Session #{old_session_id} closed, portfolio preserved",
+        )
+    except Exception as e:
+        print(f"[session] Portfolio preservation warning: {e}")
+
+
+def sync_portfolio_snapshot(portfolio: dict, price: float):
+    """Sync lifetime_portfolio from auto_trader state. Called every cycle."""
+    try:
+        cash = float(portfolio.get("cash", 0))
+        btc = float(portfolio.get("btc_holdings", 0))
+        avg_entry = float(portfolio.get("avg_entry_price", 0))
+        rpnl = float(portfolio.get("realized_pnl", 0))
+        total_t = int(portfolio.get("total_trades", 0))
+        wins = int(portfolio.get("wins", 0))
+        losses = int(portfolio.get("losses", 0))
+        holds = int(portfolio.get("hold_count", 0))
+        blocked = int(portfolio.get("blocked_trades", 0))
+        db.sync_lifetime_portfolio(
+            cash=cash, btc_holdings=btc, avg_entry=avg_entry,
+            price=price, realized_pnl=rpnl,
+            total_trades=total_t, wins=wins, losses=losses,
+            holds=holds, blocked=blocked,
+        )
+    except Exception:
+        pass  # non-critical
+
+
+_last_refill_ts: float = 0.0
+_REFILL_COOLDOWN: float = 10.0  # seconds — prevents accidental double-submit
+
+
+def record_refill(amount: float, reason: str = "Manual refill") -> dict:
+    """Record a capital refill — adds cash, does NOT reset stats.
+    Has 10-second cooldown to prevent accidental duplicate refills."""
+    global _last_refill_ts
+
+    if not _current_session_id:
+        return {"error": "No active session"}
+
+    if amount <= 0:
+        return {"error": "Amount must be positive"}
+
+    # Idempotency: reject if same refill within cooldown window
+    now = time.time()
+    if (now - _last_refill_ts) < _REFILL_COOLDOWN:
+        return {"error": "Refill too soon — please wait 10 seconds between refills",
+                "cooldown_remaining": round(_REFILL_COOLDOWN - (now - _last_refill_ts), 1)}
+
+    portfolio = db.get_lifetime_portfolio()
+    old_cash = portfolio.get("cash", 0) if portfolio else 0
+    new_cash = old_cash + amount
+
+    db.insert_capital_event(
+        event_type="refill",
+        amount=amount,
+        balance_after=round(new_cash, 4),
+        reason=reason,
+        session_id=_current_session_id,
+        version=APP_VERSION,
+    )
+    db.upsert_lifetime_portfolio(
+        cash=round(new_cash, 4),
+        total_refills=(portfolio.get("total_refills", 0) or 0) + 1,
+        total_refill_amount=round((portfolio.get("total_refill_amount", 0) or 0) + amount, 4),
+    )
+
+    _last_refill_ts = now
+    return {"old_cash": round(old_cash, 4), "added": amount, "new_cash": round(new_cash, 4)}
 
 
 # ---------------------------------------------------------------------------

@@ -102,21 +102,97 @@ function SourceBadge({source}) {
   );
 }
 
-/* ── Feed item ── */
+/* ── Verdict color helper ── */
+function verdictColor(v) {
+  const m = {interesting:"#22c55e",watch:"#3b82f6",reject:"#6b7280",noise:"#4b5563",unclear:"#8b5cf6"};
+  return m[v] || "#6b7280";
+}
+
+/* ── Feed item (expandable for news) ── */
 function FeedItem({item}) {
+  const [open, setOpen] = useState(false);
   const ago = (()=>{try{const d=(Date.now()-new Date(item.timestamp).getTime())/1000;if(d<60)return "just now";if(d<3600)return `${Math.floor(d/60)}m ago`;if(d<86400)return `${Math.floor(d/3600)}h ago`;return `${Math.floor(d/86400)}d ago`}catch{return ""}})();
   const src = item.meta?.source || "";
+  const isNews = item.type?.startsWith("news_");
+  const m = item.meta || {};
+  const hasDetail = isNews && (m.reasoning_text || m.body || (m.bullish_signals?.length||0)>0 || (m.bearish_signals?.length||0)>0);
   return (
-    <div style={{display:"flex",gap:10,padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
-      <span style={{fontSize:14,color:item.color||"var(--text-muted)",minWidth:18,textAlign:"center"}}>{item.icon||"·"}</span>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:12,color:"var(--text)",lineHeight:1.4}}>
-          {item.message}
-          <SourceBadge source={src}/>
+    <div style={{borderBottom:"1px solid var(--border)"}}>
+      <div
+        style={{display:"flex",gap:10,padding:"8px 0",cursor:hasDetail?"pointer":"default"}}
+        onClick={()=>hasDetail&&setOpen(!open)}
+      >
+        <span style={{fontSize:14,color:item.color||"var(--text-muted)",minWidth:18,textAlign:"center"}}>{item.icon||"·"}</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:12,color:"var(--text)",lineHeight:1.4}}>
+            {item.message}
+            <SourceBadge source={src}/>
+            {hasDetail&&<span style={{fontSize:9,color:"var(--text-muted)",marginLeft:4}}>{open?"▾":"▸"}</span>}
+          </div>
+          {item.detail&&<div style={{fontSize:10,color:"var(--text-muted)",marginTop:2}}>{item.detail}</div>}
         </div>
-        {item.detail&&<div style={{fontSize:10,color:"var(--text-muted)",marginTop:2}}>{item.detail}</div>}
+        <span style={{fontSize:9,color:"var(--text-muted)",whiteSpace:"nowrap",paddingTop:2}}>{ago}</span>
       </div>
-      <span style={{fontSize:9,color:"var(--text-muted)",whiteSpace:"nowrap",paddingTop:2}}>{ago}</span>
+      {open && hasDetail && (
+        <div style={{padding:"4px 0 10px 28px",fontSize:10,lineHeight:1.6,color:"var(--text-muted)"}}>
+          {/* Verdict + scores row */}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+            <span style={{padding:"1px 6px",borderRadius:4,fontSize:9,fontWeight:600,color:"#fff",background:verdictColor(m.verdict)}}>{m.verdict||"?"}</span>
+            {m.sentiment&&<span style={{fontSize:9}}>Sentiment: <b style={{color:m.sentiment==="bullish"?"#22c55e":m.sentiment==="bearish"?"#ef4444":"var(--text-muted)"}}>{m.sentiment}</b></span>}
+            {m.impact&&<span style={{fontSize:9}}>Impact: <b>{m.impact}</b></span>}
+            {m.trust!=null&&<span style={{fontSize:9}}>Trust: <b>{(m.trust*100).toFixed(0)}%</b></span>}
+            {m.bs_risk!=null&&m.bs_risk>0.1&&<span style={{fontSize:9,color:"#ef4444"}}>BS: {(m.bs_risk*100).toFixed(0)}%</span>}
+          </div>
+          {/* Raw body / summary */}
+          {m.body&&<div style={{marginBottom:4,color:"var(--text)",opacity:0.7,fontStyle:"italic"}}>{m.body}</div>}
+          {/* Reasoning text */}
+          {m.reasoning_text&&<div style={{marginBottom:4}}>🔍 <span style={{color:"var(--text)"}}>{m.reasoning_text}</span></div>}
+          {/* Signals */}
+          {(m.bullish_signals?.length>0||m.bearish_signals?.length>0)&&(
+            <div style={{display:"flex",gap:12,marginBottom:4}}>
+              {m.bullish_signals?.length>0&&<span style={{color:"#22c55e"}}>▲ {m.bullish_signals.join(", ")}</span>}
+              {m.bearish_signals?.length>0&&<span style={{color:"#ef4444"}}>▼ {m.bearish_signals.join(", ")}</span>}
+            </div>
+          )}
+          {/* Link to source */}
+          {m.url&&<a href={m.url} target="_blank" rel="noopener noreferrer" style={{fontSize:9,color:"#3b82f6",textDecoration:"none"}}>View source ↗</a>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Interesting item (expandable) ── */
+function InterestingItem({it}) {
+  const [open, setOpen] = useState(false);
+  const hasExtra = it.reasoning_text || (it.bullish_signals?.length>0) || (it.bearish_signals?.length>0);
+  return (
+    <div style={{padding:"6px 0",borderBottom:"1px solid var(--border)"}}>
+      <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3,flexWrap:"wrap",cursor:hasExtra?"pointer":"default"}} onClick={()=>hasExtra&&setOpen(!open)}>
+        <VBadge v={it.verdict}/><SBadge s={it.sentiment} str={it.sentiment_strength}/>
+        {it.impact&&<span style={{fontSize:9,color:"var(--text-muted)"}}>{it.impact}</span>}
+        <SourceBadge source={it.source_name || it.source}/>
+        {hasExtra&&<span style={{fontSize:9,color:"var(--text-muted)"}}>{open?"▾":"▸"}</span>}
+      </div>
+      <div style={{fontSize:11,color:"var(--text)",lineHeight:1.3}}>{it.headline}</div>
+      <div style={{fontSize:10,color:"var(--text-muted)",marginTop:2,fontStyle:"italic"}}>{it.explanation}</div>
+      {open && hasExtra && (
+        <div style={{marginTop:4,padding:"4px 0 2px 4px",fontSize:9,lineHeight:1.6,color:"var(--text-muted)",borderLeft:"2px solid var(--border)",paddingLeft:8}}>
+          {it.reasoning_text&&<div style={{marginBottom:3}}>🔍 {it.reasoning_text}</div>}
+          {(it.bullish_signals?.length>0||it.bearish_signals?.length>0)&&(
+            <div style={{display:"flex",gap:10}}>
+              {it.bullish_signals?.length>0&&<span style={{color:"#22c55e"}}>▲ {it.bullish_signals.join(", ")}</span>}
+              {it.bearish_signals?.length>0&&<span style={{color:"#ef4444"}}>▼ {it.bearish_signals.join(", ")}</span>}
+            </div>
+          )}
+          <div style={{display:"flex",gap:8,marginTop:2}}>
+            {it.trust!=null&&<span>Trust: {(it.trust*100).toFixed(0)}%</span>}
+            {it.relevance!=null&&<span>Relevance: {(it.relevance*100).toFixed(0)}%</span>}
+            {it.bs_risk!=null&&it.bs_risk>0.1&&<span style={{color:"#ef4444"}}>BS: {(it.bs_risk*100).toFixed(0)}%</span>}
+          </div>
+          {it.url&&<a href={it.url} target="_blank" rel="noopener noreferrer" style={{fontSize:9,color:"#3b82f6",textDecoration:"none",display:"block",marginTop:2}}>View source ↗</a>}
+        </div>
+      )}
     </div>
   );
 }
@@ -244,6 +320,8 @@ export default function Lab() {
   const {data:journalD}      = useApi("/v7/mind/journal", 60000);
   const {data:reflectionsD}  = useApi("/v7/side-hustle/reflections?limit=10", 45000);
   const {data:replayD}       = useApi("/v7/mind/replay", 60000);
+  const {data:identityD}     = useApi("/v7/mind/identity", 60000);
+  const {data:ltPortfolioD}  = useApi("/v7/lifetime/portfolio", 60000);
 
   const mood        = mindState?.mood || "idle_waiting";
   const moodLabel   = mindState?.mood_label || "Starting up…";
@@ -285,6 +363,8 @@ export default function Lab() {
   const reflections  = reflectionsD?.reflections || [];
   const reflStats    = reflectionsD?.stats || {};
   const replayTL     = replayD?.timeline || [];
+  const identity     = identityD || {};
+  const ltPortfolio  = ltPortfolioD || {};
 
   // Detect warm-up: no mind state data yet, or error
   const isWarmingUp = !mindState || hasError;
@@ -402,6 +482,52 @@ export default function Lab() {
         </div>
       </div>
 
+      {/* ── System Identity + Lifetime Portfolio ── */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",gap:8,marginBottom:8}}>
+        <div style={CARD}>
+          <div style={LBL}>System Identity</div>
+          {identity.warming_up ? (
+            <WarmUp text="Identity forming…" sub="Cycles and trades build identity over time."/>
+          ) : (
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:4}}>
+              <StatBox label="Total Cycles" value={(identity.total_cycles||0).toLocaleString()}/>
+              <StatBox label="Total Sessions" value={identity.total_sessions||0}/>
+              <StatBox label="Total Trades" value={(identity.total_trades||0).toLocaleString()}/>
+              <StatBox label="Continuity" value={`${identity.continuity_score||0}%`} color="#8b5cf6"/>
+              <StatBox label="Memories" value={identity.total_memories||0}/>
+              <StatBox label="Version" value={identity.current_version||"?"}/>
+            </div>
+          )}
+          {identity.dominant_traits?.dominant && (
+            <div style={{marginTop:6,fontSize:10,color:"var(--text-muted)"}}>
+              Dominant: <b style={{color:"#8b5cf6"}}>{identity.dominant_traits.dominant.replace(/_/g," ")}</b>
+            </div>
+          )}
+        </div>
+        <div style={CARD}>
+          <div style={LBL}>Lifetime Portfolio</div>
+          {ltPortfolio.warming_up ? (
+            <WarmUp text="Portfolio initializing…" sub="Financial state persists across upgrades."/>
+          ) : (
+            <>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:4}}>
+                <StatBox label="Cash" value={`$${(ltPortfolio.cash||0).toFixed(2)}`}/>
+                <StatBox label="BTC" value={`${(ltPortfolio.btc_holdings||0).toFixed(6)}`}/>
+                <StatBox label="Equity" value={`$${(ltPortfolio.total_equity||0).toFixed(2)}`} color="#22c55e"/>
+                <StatBox label="Realized PnL" value={(ltPortfolio.realized_pnl||0).toFixed(4)} color={ltPortfolio.realized_pnl>0?"#22c55e":"#ef4444"}/>
+                <StatBox label="Peak" value={`$${(ltPortfolio.peak_equity||0).toFixed(2)}`}/>
+                <StatBox label="Max DD" value={`${(ltPortfolio.max_drawdown_pct||0).toFixed(1)}%`} color="#ef4444"/>
+              </div>
+              {(ltPortfolio.total_refills||0)>0 && (
+                <div style={{marginTop:6,fontSize:9,color:"var(--text-muted)"}}>
+                  Refills: {ltPortfolio.total_refills} (${(ltPortfolio.total_refill_amount||0).toFixed(2)} total)
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
       {/* ── 2-col → stacks on narrow screens ── */}
       <div style={{
         display:"grid",
@@ -436,17 +562,7 @@ export default function Lab() {
                 text="Nothing interesting yet."
                 sub="The radar is scanning. Signals will surface when they're real."
               />
-            ) : interesting.map((it,i)=>(
-              <div key={i} style={{padding:"6px 0",borderBottom:"1px solid var(--border)"}}>
-                <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
-                  <VBadge v={it.verdict}/><SBadge s={it.sentiment} str={it.sentiment_strength}/>
-                  {it.impact&&<span style={{fontSize:9,color:"var(--text-muted)"}}>{it.impact}</span>}
-                  <SourceBadge source={it.source_name || it.source}/>
-                </div>
-                <div style={{fontSize:11,color:"var(--text)",lineHeight:1.3}}>{it.headline}</div>
-                <div style={{fontSize:10,color:"var(--text-muted)",marginTop:2,fontStyle:"italic"}}>{it.explanation}</div>
-              </div>
-            ))}
+            ) : interesting.map((it,i)=><InterestingItem key={i} it={it}/>)}
           </div>
 
           {/* Rejected Today */}

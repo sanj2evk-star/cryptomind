@@ -99,15 +99,22 @@ def compute(session_id: int = None) -> dict:
         if not sid:
             return _warm_up_state()
 
-        # --- Gather evidence ---
+        # --- Gather evidence (70% recent session, 30% lifetime) ---
         profile = db.get_active_profile(sid) or {}
         bstate = db.get_behavior_state(sid) or {}
+        # Session-scoped
         journal = db.get_adaptation_journal(session_id=sid, limit=100)
         memories = db.get_active_memories(session_id=sid, limit=100)
         trade_summary = db.get_trade_summary(session_id=sid)
         total_trades = trade_summary.get("total", 0)
+        # Lifetime (all sessions) — used for continuity
+        lifetime_memories = db.get_lifetime_memories(limit=200)
+        lifetime_trade_summary = db.get_trade_summary()  # None = all sessions
+        lifetime_trades = lifetime_trade_summary.get("total", 0)
+        # Use lifetime trades for warm-up check — personality persists
+        effective_trades = max(total_trades, lifetime_trades)
 
-        if total_trades < 3:
+        if effective_trades < 3:
             return _warm_up_state()
 
         # --- Compute each trait (0-100) ---
@@ -186,20 +193,35 @@ def compute(session_id: int = None) -> dict:
         else:
             oneliner = "Still learning who it is."
 
+        # Store dominant traits to identity for cross-version persistence
+        try:
+            import json as _json
+            dominant_json = _json.dumps({
+                "dominant": dominant["name"] if dominant else None,
+                "supporting": [s["name"] for s in supporting],
+                "scores": {k: v["score"] for k, v in traits.items()},
+            })
+            db.upsert_lifetime_identity(dominant_traits_json=dominant_json)
+        except Exception:
+            pass
+
         result = {
             "traits":         traits,
             "dominant_trait":  dominant,
             "supporting":     supporting,
             "oneliner":       oneliner,
             "evidence": {
-                "total_trades":      total_trades,
-                "memory_count":      memory_count,
-                "adaptations":       total_j,
+                "total_trades":        total_trades,
+                "lifetime_trades":     lifetime_trades,
+                "memory_count":        memory_count,
+                "lifetime_memories":   len(lifetime_memories),
+                "adaptations":         total_j,
                 "allowed_adaptations": allowed,
                 "blocked_adaptations": blocked,
-                "win_rate":          round(float(trade_summary.get("win_rate", 0.5)), 3),
+                "win_rate":            round(float(trade_summary.get("win_rate", 0.5)), 3),
+                "lifetime_win_rate":   round(float(lifetime_trade_summary.get("win_rate", 0.5)), 3),
             },
-            "warming_up": total_trades < 10,
+            "warming_up": effective_trades < 10,
             "computed_at": datetime.now(timezone.utc).isoformat(),
         }
 

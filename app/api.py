@@ -1222,35 +1222,42 @@ def _observer_classify_and_feed():
         bullshit_radar.feed(classified)
         mind_feed_engine.on_news_classified(classified)
 
-        # Persist interesting/watched to DB
+        # Persist ALL classified news to DB (not just interesting/watch)
         try:
             import db as v7db
             import session_manager
+            import json as _json
             sid = session_manager.get_session_id()
             if sid:
                 for c in classified:
-                    if c.get("verdict") in ("interesting", "watch"):
-                        v7db.insert_news_analysis(
-                            session_id=sid,
-                            headline=c.get("headline", ""),
-                            verdict=c.get("verdict", "noise"),
-                            source=c.get("source", ""),
-                            category=c.get("category", "general"),
-                            trust_score=c.get("trust", 0.5),
-                            novelty_score=c.get("novelty", 0.5),
-                            relevance_score=c.get("relevance", 0),
-                            impact_bias=c.get("impact_bias", "neutral"),
-                            impact_strength=c.get("impact_strength", 0),
-                            half_life=c.get("half_life_hours", 1),
-                            hype_score=c.get("hype_score", 0),
-                            bullshit_risk=c.get("bs_risk", 0),
-                            sentiment=c.get("sentiment", "neutral"),
-                            explanation=c.get("explanation"),
-                            accepted=1 if c.get("verdict") == "interesting" else 0,
-                            volatility_warning=1 if c.get("vol_warning") else 0,
-                            url=c.get("url"),
-                            original_timestamp=c.get("original_timestamp"),
-                        )
+                    signals = c.get("extracted_signals")
+                    signals_json = _json.dumps(signals) if signals else None
+                    v7db.insert_news_analysis(
+                        session_id=sid,
+                        headline=c.get("headline", ""),
+                        verdict=c.get("verdict", "noise"),
+                        source=c.get("source", ""),
+                        category=c.get("category", "general"),
+                        trust_score=c.get("trust", 0.5),
+                        novelty_score=c.get("novelty", 0.5),
+                        relevance_score=c.get("relevance", 0),
+                        impact_bias=c.get("impact_bias", "neutral"),
+                        impact_strength=c.get("impact_strength", 0),
+                        half_life=c.get("half_life_hours", 1),
+                        hype_score=c.get("hype_score", 0),
+                        bullshit_risk=c.get("bs_risk", 0),
+                        sentiment=c.get("sentiment", "neutral"),
+                        explanation=c.get("explanation"),
+                        accepted=1 if c.get("verdict") == "interesting" else 0,
+                        volatility_warning=1 if c.get("vol_warning") else 0,
+                        url=c.get("url"),
+                        original_timestamp=c.get("original_timestamp"),
+                        raw_summary=c.get("body", "")[:500] if c.get("body") else None,
+                        source_name=c.get("source_name", ""),
+                        fetched_at=c.get("classified_at"),
+                        reasoning_text=c.get("reasoning_text"),
+                        extracted_signals_json=signals_json,
+                    )
         except Exception:
             pass
 
@@ -1406,6 +1413,55 @@ def get_news_rejected(limit: int = Query(default=30, ge=1, le=100)):
         }
     except Exception as e:
         return {"error": str(e), "rejected": []}
+
+
+@app.get("/v7/news/detail/{analysis_id}")
+def get_news_detail(analysis_id: int):
+    """Deep inspection of a single classified news item — raw content + interpretation."""
+    try:
+        import db as v7db
+        import json as _json
+
+        item = v7db.get_news_analysis_by_id(analysis_id)
+        if not item:
+            return {"error": "Not found", "analysis_id": analysis_id}
+
+        # Parse extracted_signals_json if present
+        signals = {}
+        if item.get("extracted_signals_json"):
+            try:
+                signals = _json.loads(item["extracted_signals_json"])
+            except Exception:
+                signals = {}
+
+        return {
+            "analysis_id":      item.get("analysis_id"),
+            "headline":         item.get("headline", ""),
+            "raw_summary":      item.get("raw_summary") or None,
+            "source":           item.get("source", ""),
+            "source_name":      item.get("source_name", ""),
+            "url":              item.get("url"),
+            "original_timestamp": item.get("original_timestamp"),
+            "fetched_at":       item.get("fetched_at"),
+            "category":         item.get("category", "general"),
+            "sentiment":        item.get("sentiment", "neutral"),
+            "impact_bias":      item.get("impact_bias", "neutral"),
+            "impact_strength":  item.get("impact_strength", 0),
+            "trust_score":      item.get("trust_score", 0.5),
+            "relevance_score":  item.get("relevance_score", 0),
+            "novelty_score":    item.get("novelty_score", 0.5),
+            "hype_score":       item.get("hype_score", 0),
+            "bullshit_risk":    item.get("bullshit_risk", 0),
+            "verdict":          item.get("verdict", "noise"),
+            "explanation":      item.get("explanation", ""),
+            "reasoning_text":   item.get("reasoning_text") or "",
+            "extracted_signals": signals,
+            "half_life":        item.get("half_life", 1),
+            "volatility_warning": bool(item.get("volatility_warning", 0)),
+            "accepted":         bool(item.get("accepted", 0)),
+        }
+    except Exception as e:
+        return {"error": str(e), "analysis_id": analysis_id}
 
 
 @app.get("/v7/news/interesting")
@@ -1600,6 +1656,287 @@ def get_replay():
     except Exception as e:
         return {"error": str(e), "timeline": [], "warming_up": True,
                 "total_markers": 0, "marker_types": {}}
+
+
+# ---------------------------------------------------------------------------
+# v7.4.1: Continuity Layer — Lifetime Identity + Cross-Session Queries
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/mind/identity")
+def get_identity():
+    """Lifetime identity — system age, dominant traits, continuity score."""
+    try:
+        import db as v7db
+        import session_manager
+
+        identity = v7db.get_lifetime_identity()
+        if not identity:
+            return {
+                "warming_up": True,
+                "total_cycles": 0,
+                "total_sessions": 0,
+                "total_trades": 0,
+                "current_version": session_manager.APP_VERSION,
+            }
+
+        # Compute continuity score: how deep is the system's history?
+        lt_cycles = identity.get("total_cycles", 0) or 0
+        lt_sessions = identity.get("total_sessions", 0) or 0
+        lt_trades = identity.get("total_trades", 0) or 0
+        mem_summary = v7db.get_lifetime_memories_summary()
+        total_memories = mem_summary.get("active", 0) or 0
+
+        # Continuity score (0-100): cycles, sessions, trades, memories all contribute
+        c_cycles = min(30, lt_cycles / 100)   # max 30 from cycles (3000+)
+        c_sessions = min(20, lt_sessions * 4)  # max 20 from sessions (5+)
+        c_trades = min(25, lt_trades / 8)      # max 25 from trades (200+)
+        c_memories = min(25, total_memories)    # max 25 from memories (25+)
+        continuity_score = round(c_cycles + c_sessions + c_trades + c_memories, 1)
+
+        # Update identity with latest continuity score
+        v7db.upsert_lifetime_identity(
+            continuity_score=continuity_score,
+            memory_depth_score=round(total_memories / max(lt_trades, 1) * 100, 1),
+        )
+
+        # Parse dominant traits
+        dominant_traits = None
+        try:
+            import json as _json
+            dt_raw = identity.get("dominant_traits_json")
+            if dt_raw:
+                dominant_traits = _json.loads(dt_raw)
+        except Exception:
+            pass
+
+        return {
+            "first_seen_at":      identity.get("first_seen_at"),
+            "total_cycles":       lt_cycles,
+            "total_sessions":     lt_sessions,
+            "total_trades":       lt_trades,
+            "last_version":       identity.get("last_version", "?"),
+            "current_version":    session_manager.APP_VERSION,
+            "continuity_score":   continuity_score,
+            "memory_depth_score": identity.get("memory_depth_score", 0),
+            "dominant_traits":    dominant_traits,
+            "total_memories":     total_memories,
+            "updated_at":         identity.get("updated_at"),
+            "warming_up":         lt_cycles < 10,
+        }
+    except Exception as e:
+        return {"error": str(e), "warming_up": True, "total_cycles": 0}
+
+
+@app.get("/v7/lifetime/memories")
+def get_lifetime_memories(
+    limit: int = Query(default=50, ge=1, le=200),
+    scope: str = Query(default="lifetime", regex="^(lifetime|session)$"),
+):
+    """Experience memories — lifetime or session-scoped."""
+    try:
+        import db as v7db
+        import session_manager
+
+        if scope == "session":
+            sid = session_manager.get_session_id()
+            memories = v7db.get_active_memories(session_id=sid, limit=limit)
+        else:
+            memories = v7db.get_lifetime_memories(limit=limit)
+
+        summary = v7db.get_lifetime_memories_summary()
+
+        return {
+            "memories": memories,
+            "summary": summary,
+            "scope": scope,
+            "total": len(memories),
+        }
+    except Exception as e:
+        return {"error": str(e), "memories": [], "scope": scope, "total": 0}
+
+
+@app.get("/v7/lifetime/journals")
+def get_lifetime_journals(
+    limit: int = Query(default=30, ge=1, le=100),
+    scope: str = Query(default="lifetime", regex="^(lifetime|session)$"),
+):
+    """Journal entries — lifetime or session-scoped."""
+    try:
+        import db as v7db
+        import session_manager
+
+        if scope == "session":
+            sid = session_manager.get_session_id()
+            journals = v7db.get_journal_entries(session_id=sid, limit=limit) if sid else []
+        else:
+            journals = v7db.get_lifetime_journals(limit=limit)
+
+        return {
+            "journals": journals,
+            "scope": scope,
+            "total": len(journals),
+        }
+    except Exception as e:
+        return {"error": str(e), "journals": [], "scope": scope, "total": 0}
+
+
+@app.get("/v7/lifetime/reflections")
+def get_lifetime_reflections(
+    limit: int = Query(default=30, ge=1, le=100),
+    scope: str = Query(default="lifetime", regex="^(lifetime|session)$"),
+):
+    """Action reflections — lifetime or session-scoped."""
+    try:
+        import db as v7db
+        import session_manager
+
+        if scope == "session":
+            sid = session_manager.get_session_id()
+            reflections = v7db.get_action_reflections(session_id=sid, limit=limit) if sid else []
+            stats = v7db.get_reflection_summary(session_id=sid) if sid else {}
+        else:
+            reflections = v7db.get_lifetime_reflections(limit=limit)
+            stats = v7db.get_lifetime_reflection_summary()
+
+        return {
+            "reflections": reflections,
+            "stats": stats or {},
+            "scope": scope,
+            "total": len(reflections),
+        }
+    except Exception as e:
+        return {"error": str(e), "reflections": [], "stats": {}, "scope": scope, "total": 0}
+
+
+@app.get("/v7/lifetime/truth-reviews")
+def get_lifetime_truth(
+    limit: int = Query(default=30, ge=1, le=100),
+    scope: str = Query(default="lifetime", regex="^(lifetime|session)$"),
+):
+    """Truth reviews — lifetime or session-scoped."""
+    try:
+        import db as v7db
+        import session_manager
+
+        if scope == "session":
+            sid = session_manager.get_session_id()
+            reviews = v7db.get_truth_reviews(session_id=sid, limit=limit) if sid else []
+            stats = v7db.get_truth_review_summary(session_id=sid) if sid else {}
+        else:
+            reviews = v7db.get_lifetime_truth_reviews(limit=limit)
+            stats = v7db.get_lifetime_truth_summary()
+
+        return {
+            "reviews": reviews,
+            "stats": stats or {},
+            "scope": scope,
+            "total": len(reviews),
+        }
+    except Exception as e:
+        return {"error": str(e), "reviews": [], "stats": {}, "scope": scope, "total": 0}
+
+
+@app.get("/v7/lifetime/milestones")
+def get_lifetime_milestones_endpoint(limit: int = Query(default=30, ge=1, le=100)):
+    """Milestones across all sessions — never reset."""
+    try:
+        import db as v7db
+        milestones = v7db.get_lifetime_milestones(limit=limit)
+        return {"milestones": milestones, "total": len(milestones)}
+    except Exception as e:
+        return {"error": str(e), "milestones": [], "total": 0}
+
+
+@app.get("/v7/lifetime/portfolio")
+def get_lifetime_portfolio_endpoint():
+    """Lifetime portfolio — financial state that persists across versions."""
+    try:
+        import db as v7db
+        portfolio = v7db.get_lifetime_portfolio()
+        if not portfolio:
+            return {"warming_up": True, "cash": 0, "total_equity": 0}
+        capital = v7db.get_capital_summary()
+        return {
+            **portfolio,
+            "capital_summary": capital,
+            "warming_up": False,
+        }
+    except Exception as e:
+        return {"error": str(e), "warming_up": True}
+
+
+@app.get("/v7/lifetime/capital-events")
+def get_capital_events_endpoint(limit: int = Query(default=30, ge=1, le=100)):
+    """Capital event log — funding, refills, withdrawals."""
+    try:
+        import db as v7db
+        events = v7db.get_capital_events(limit=limit)
+        return {"events": events, "total": len(events)}
+    except Exception as e:
+        return {"error": str(e), "events": [], "total": 0}
+
+
+@app.post("/v7/lifetime/refill")
+def refill_capital(amount: float = Query(ge=1, le=100000),
+                   reason: str = Query(default="Manual refill")):
+    """Add capital — does NOT reset stats or PnL. 10s cooldown prevents duplicates."""
+    try:
+        import session_manager
+        import db as v7db
+        result = session_manager.record_refill(amount=amount, reason=reason)
+        if result.get("error"):
+            return result
+        # Return updated portfolio alongside refill confirmation
+        portfolio = v7db.get_lifetime_portfolio()
+        result["portfolio"] = portfolio or {}
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v7/trades/scoped")
+def get_scoped_trades(
+    scope: str = Query(default="session", regex="^(session|version|lifetime)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Trades filtered by scope: session, version, or lifetime."""
+    try:
+        import db as v7db
+        import session_manager
+
+        sid = session_manager.get_session_id()
+        version = session_manager.APP_VERSION
+
+        trades, total = v7db.get_trades_by_scope(
+            scope=scope, session_id=sid, version=version, limit=limit
+        )
+        stats = v7db.get_trade_stats_by_scope(
+            scope=scope, session_id=sid, version=version
+        )
+
+        return {
+            "trades": trades,
+            "stats": stats,
+            "scope": scope,
+            "total": total,
+        }
+    except Exception as e:
+        return {"error": str(e), "trades": [], "stats": {}, "scope": scope, "total": 0}
+
+
+@app.get("/v7/lifetime/patterns")
+def get_recurring_patterns(pattern_type: str = Query(default="mistake", regex="^(mistake|lesson)$")):
+    """Recurring patterns (mistakes, lessons) across all sessions."""
+    try:
+        import db as v7db
+        patterns = v7db.get_recurring_patterns(pattern_type=pattern_type, limit=15)
+        return {
+            "patterns": patterns,
+            "pattern_type": pattern_type,
+            "total": len(patterns),
+        }
+    except Exception as e:
+        return {"error": str(e), "patterns": [], "pattern_type": pattern_type, "total": 0}
 
 
 # ---------------------------------------------------------------------------

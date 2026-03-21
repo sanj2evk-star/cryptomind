@@ -209,6 +209,40 @@ def classify(headline: str, body: str = "", source: str = "") -> dict:
     # --- volatility_warning ---
     vol_warning = impact == "high" and category in ("hack", "market_move", "macro")
 
+    # --- reasoning_text: human-readable interpretation breakdown ---
+    reasoning_parts = []
+    if rel_hits:
+        reasoning_parts.append(f"Relevant keywords: {', '.join(rel_hits[:5])}")
+    else:
+        reasoning_parts.append("No BTC-relevant keywords found")
+    if bull:
+        reasoning_parts.append(f"Bullish signals: {', '.join(bull[:4])}")
+    if bear:
+        reasoning_parts.append(f"Bearish signals: {', '.join(bear[:4])}")
+    if hype_hits:
+        reasoning_parts.append(f"Hype language: {', '.join(hype_hits[:3])}")
+    if noise_hits:
+        reasoning_parts.append(f"Noise markers: {', '.join(noise_hits[:3])}")
+    if high_impact:
+        reasoning_parts.append("Matched high-impact pattern")
+    if mixed_signals:
+        reasoning_parts.append("⚠ Mixed bull/bear signals — conflicting")
+    reasoning_parts.append(f"Category: {category} | Impact: {impact} | Trust: {trust:.0%}")
+    reasoning_parts.append(f"Verdict: {verdict} — {explanation}")
+    reasoning_text = " → ".join(reasoning_parts)
+
+    # --- extracted_signals: structured signal breakdown ---
+    extracted_signals = {
+        "bullish": bull[:5],
+        "bearish": bear[:5],
+        "hype": hype_hits[:5],
+        "noise": noise_hits[:5],
+        "relevance_keywords": rel_hits[:5],
+        "high_impact_match": high_impact,
+        "mixed_signals": mixed_signals,
+        "total_signal_count": total_signals,
+    }
+
     return {
         "headline":          headline,
         "source":            source,
@@ -227,6 +261,8 @@ def classify(headline: str, body: str = "", source: str = "") -> dict:
         "vol_warning":       vol_warning,
         "verdict":           verdict,
         "explanation":       explanation,
+        "reasoning_text":    reasoning_text,
+        "extracted_signals": extracted_signals,
         "btc_relevant":      relevance > 0,
         "bullish_signals":   bull[:3],
         "bearish_signals":   bear[:3],
@@ -246,6 +282,7 @@ def classify_batch(headlines: list[dict]) -> list[dict]:
         c["original_timestamp"] = it.get("timestamp")
         c["source_name"]        = it.get("source_name", it.get("source", ""))
         c["url"]                = it.get("url")
+        c["body"]               = it.get("body", "")  # pass raw body through
         results.append(c)
     return results
 

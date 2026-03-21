@@ -427,6 +427,19 @@ def compute_evolution_score() -> dict:
 
     # Total
     total_score = sum(v["points"] for v in breakdown.values())
+
+    # Continuity bonus: reward long-running systems across versions
+    identity = db.get_lifetime_identity()
+    continuity_multiplier = 1.0
+    if identity:
+        lt_cycles = identity.get("total_cycles", 0) or 0
+        lt_sessions = identity.get("total_sessions", 0) or 0
+        lt_trades = identity.get("total_trades", 0) or 0
+        # Maturity boost: up to +5% for systems with deep history
+        maturity_boost = min(0.05, lt_cycles / 100000 + lt_sessions / 200 + lt_trades / 10000)
+        continuity_multiplier = 1.0 + maturity_boost
+
+    total_score = int(total_score * continuity_multiplier)
     total_score = max(0, min(1000, total_score))
 
     # Confidence (needed for level gating)
@@ -446,6 +459,7 @@ def compute_evolution_score() -> dict:
         "breakdown": breakdown,
         "max_possible": 1000,
         "confidence": confidence,
+        "continuity_multiplier": round(continuity_multiplier, 4),
         "computed_at": datetime.now(timezone.utc).isoformat(),
     }
 

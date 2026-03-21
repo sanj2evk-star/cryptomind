@@ -26,6 +26,9 @@ Tables:
    25) mind_journal_entries — daily reflections and insights (v7.4 C3)
    26) action_reflections   — per-trade interpretation/grading (v7.4 C3)
    27) replay_markers       — timeline reconstruction markers (v7.4 C3)
+   28) lifetime_identity    — persistent identity singleton (v7.4.1 Continuity)
+   29) capital_ledger       — capital events: funding, refills, withdrawals (v7.4.1)
+   30) lifetime_portfolio   — financial state persisting across versions (v7.4.1)
 """
 
 from __future__ import annotations
@@ -547,6 +550,11 @@ CREATE TABLE IF NOT EXISTS news_event_analysis (
     accepted                INTEGER NOT NULL DEFAULT 0,
     url                     TEXT,
     original_timestamp      TEXT,
+    raw_summary             TEXT,
+    source_name             TEXT,
+    fetched_at              TEXT,
+    reasoning_text          TEXT,
+    extracted_signals_json  TEXT,
     FOREIGN KEY (news_event_id) REFERENCES news_events(news_id),
     FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
 );
@@ -750,6 +758,59 @@ CREATE INDEX IF NOT EXISTS idx_action_reflections_session ON action_reflections(
 CREATE INDEX IF NOT EXISTS idx_replay_markers_session ON replay_markers(session_id);
 CREATE INDEX IF NOT EXISTS idx_replay_markers_cycle ON replay_markers(cycle_number);
 CREATE INDEX IF NOT EXISTS idx_replay_markers_type ON replay_markers(marker_type);
+
+-- 28) lifetime_identity: persistent identity across versions (v7.4.1 Continuity)
+CREATE TABLE IF NOT EXISTS lifetime_identity (
+    id                      INTEGER PRIMARY KEY DEFAULT 1,
+    first_seen_at           TEXT NOT NULL,
+    total_cycles            INTEGER NOT NULL DEFAULT 0,
+    total_trades            INTEGER NOT NULL DEFAULT 0,
+    total_sessions          INTEGER NOT NULL DEFAULT 0,
+    last_version            TEXT NOT NULL DEFAULT '7.4.0',
+    dominant_traits_json    TEXT,
+    memory_depth_score      REAL NOT NULL DEFAULT 0.0,
+    continuity_score        REAL NOT NULL DEFAULT 0.0,
+    updated_at              TEXT NOT NULL
+);
+
+-- 29) capital_ledger: tracks all capital events (funding, refills, withdrawals)
+CREATE TABLE IF NOT EXISTS capital_ledger (
+    ledger_id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp               TEXT NOT NULL,
+    event_type              TEXT NOT NULL DEFAULT 'initial_funding',
+    amount                  REAL NOT NULL DEFAULT 0.0,
+    balance_after           REAL,
+    reason                  TEXT,
+    session_id              INTEGER,
+    version                 TEXT,
+    notes                   TEXT,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+-- 30) lifetime_portfolio: financial state that persists across versions (singleton)
+CREATE TABLE IF NOT EXISTS lifetime_portfolio (
+    id                      INTEGER PRIMARY KEY DEFAULT 1,
+    cash                    REAL NOT NULL DEFAULT 0.0,
+    btc_holdings            REAL NOT NULL DEFAULT 0.0,
+    avg_entry_price         REAL NOT NULL DEFAULT 0.0,
+    total_equity            REAL NOT NULL DEFAULT 0.0,
+    realized_pnl            REAL NOT NULL DEFAULT 0.0,
+    unrealized_pnl          REAL NOT NULL DEFAULT 0.0,
+    total_trades            INTEGER NOT NULL DEFAULT 0,
+    total_wins              INTEGER NOT NULL DEFAULT 0,
+    total_losses            INTEGER NOT NULL DEFAULT 0,
+    total_holds             INTEGER NOT NULL DEFAULT 0,
+    total_blocked           INTEGER NOT NULL DEFAULT 0,
+    peak_equity             REAL NOT NULL DEFAULT 0.0,
+    max_drawdown_pct        REAL NOT NULL DEFAULT 0.0,
+    total_refills           INTEGER NOT NULL DEFAULT 0,
+    total_refill_amount     REAL NOT NULL DEFAULT 0.0,
+    last_price              REAL NOT NULL DEFAULT 0.0,
+    updated_at              TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_capital_ledger_type ON capital_ledger(event_type);
+CREATE INDEX IF NOT EXISTS idx_capital_ledger_ts ON capital_ledger(timestamp);
 """
 
 
@@ -757,7 +818,25 @@ def init_db():
     """Create all tables if they don't exist. Safe to call multiple times."""
     with get_db() as conn:
         conn.executescript(_SCHEMA)
+        # Migrations: add columns to existing tables (safe to re-run)
+        _migrate_news_transparency(conn)
     print(f"[db] Initialized database at {DB_PATH}")
+
+
+def _migrate_news_transparency(conn):
+    """Add news transparency columns if missing (v7.4.1)."""
+    new_cols = [
+        ("raw_summary", "TEXT"),
+        ("source_name", "TEXT"),
+        ("fetched_at", "TEXT"),
+        ("reasoning_text", "TEXT"),
+        ("extracted_signals_json", "TEXT"),
+    ]
+    for col_name, col_type in new_cols:
+        try:
+            conn.execute(f"ALTER TABLE news_event_analysis ADD COLUMN {col_name} {col_type}")
+        except Exception:
+            pass  # column already exists
 
 
 # ---------------------------------------------------------------------------
@@ -1946,6 +2025,16 @@ def get_news_analyses(verdict: str = None, limit: int = 50) -> list[dict]:
         return rows_to_dicts(rows)
 
 
+def get_news_analysis_by_id(analysis_id: int) -> dict | None:
+    """Get a single news analysis by ID with all fields."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM news_event_analysis WHERE analysis_id = ?",
+            (analysis_id,)
+        ).fetchone()
+        return dict_from_row(row)
+
+
 def get_news_analysis_summary() -> dict:
     with get_db() as conn:
         row = conn.execute("""
@@ -2573,3 +2662,385 @@ def get_replay_timeline(session_id: int, cycle_start: int = 0,
             (session_id, cycle_start, cycle_end)
         ).fetchall()
         return rows_to_dicts(rows)
+
+
+# ---------------------------------------------------------------------------
+# lifetime_identity helpers (v7.4.1 Continuity Layer)
+# ---------------------------------------------------------------------------
+
+def get_lifetime_identity() -> dict | None:
+    """Get the singleton lifetime identity row."""
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM lifetime_identity WHERE id = 1").fetchone()
+        return dict_from_row(row)
+
+
+def upsert_lifetime_identity(**kwargs) -> None:
+    """Update or create the lifetime identity singleton."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM lifetime_identity WHERE id = 1").fetchone()
+        if existing:
+            sets = ", ".join(f"{k} = ?" for k in kwargs)
+            vals = list(kwargs.values())
+            conn.execute(f"UPDATE lifetime_identity SET {sets}, updated_at = ? WHERE id = 1",
+                         vals + [now])
+        else:
+            kwargs.setdefault("first_seen_at", now)
+            kwargs["updated_at"] = now
+            kwargs["id"] = 1
+            cols = ", ".join(kwargs.keys())
+            ph = ", ".join("?" for _ in kwargs)
+            conn.execute(f"INSERT INTO lifetime_identity ({cols}) VALUES ({ph})",
+                         list(kwargs.values()))
+
+
+def increment_identity_counters(cycles: int = 0, trades: int = 0, sessions: int = 0) -> None:
+    """Atomically increment lifetime identity counters."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM lifetime_identity WHERE id = 1").fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE lifetime_identity SET
+                   total_cycles = total_cycles + ?,
+                   total_trades = total_trades + ?,
+                   total_sessions = total_sessions + ?,
+                   updated_at = ?
+                   WHERE id = 1""",
+                (cycles, trades, sessions, now)
+            )
+        else:
+            conn.execute(
+                """INSERT INTO lifetime_identity
+                   (id, first_seen_at, total_cycles, total_trades, total_sessions,
+                    last_version, updated_at)
+                   VALUES (1, ?, ?, ?, ?, '7.4.0', ?)""",
+                (now, cycles, trades, sessions, now)
+            )
+
+
+# ---------------------------------------------------------------------------
+# Lifetime query helpers (cross-session, cumulative)
+# ---------------------------------------------------------------------------
+
+def get_lifetime_memories(limit: int = 100) -> list[dict]:
+    """Get experience memories across ALL sessions (lifetime view)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM experience_memory
+               WHERE is_active = 1
+               ORDER BY confidence_weight DESC, times_observed DESC
+               LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_lifetime_memories_summary() -> dict:
+    """Get aggregate memory stats across all sessions."""
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active,
+                AVG(confidence_weight) as avg_confidence,
+                MAX(times_observed) as max_observed,
+                MIN(created_at) as oldest,
+                MAX(created_at) as newest
+            FROM experience_memory
+        """).fetchone()
+        return dict_from_row(row) if row else {}
+
+
+def get_lifetime_journals(limit: int = 50) -> list[dict]:
+    """Get journal entries across ALL sessions."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM mind_journal_entries
+               ORDER BY journal_date DESC, entry_id DESC
+               LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_lifetime_reflections(limit: int = 50) -> list[dict]:
+    """Get action reflections across ALL sessions."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM action_reflections
+               ORDER BY reflection_id DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_lifetime_reflection_summary() -> dict:
+    """Reflection grade distribution across ALL sessions."""
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN overall_grade = 'A' THEN 1 ELSE 0 END) as grade_a,
+                SUM(CASE WHEN overall_grade = 'B' THEN 1 ELSE 0 END) as grade_b,
+                SUM(CASE WHEN overall_grade = 'C' THEN 1 ELSE 0 END) as grade_c,
+                SUM(CASE WHEN overall_grade = 'D' THEN 1 ELSE 0 END) as grade_d,
+                SUM(CASE WHEN overall_grade = 'F' THEN 1 ELSE 0 END) as grade_f
+            FROM action_reflections
+        """).fetchone()
+        return dict_from_row(row) if row else {}
+
+
+def get_lifetime_truth_reviews(limit: int = 50) -> list[dict]:
+    """Get truth reviews across ALL sessions."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM news_truth_reviews
+               ORDER BY review_id DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_lifetime_truth_summary() -> dict:
+    """Truth review accuracy across ALL sessions."""
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN verdict = 'correct' THEN 1 ELSE 0 END) as correct,
+                SUM(CASE WHEN verdict = 'wrong' THEN 1 ELSE 0 END) as wrong,
+                SUM(CASE WHEN verdict = 'mixed' THEN 1 ELSE 0 END) as mixed,
+                SUM(CASE WHEN verdict = 'unclear' THEN 1 ELSE 0 END) as unclear,
+                SUM(CASE WHEN verdict = 'faded' THEN 1 ELSE 0 END) as faded,
+                SUM(CASE WHEN verdict = 'pending' THEN 1 ELSE 0 END) as pending
+            FROM news_truth_reviews
+        """).fetchone()
+        return dict_from_row(row) if row else {}
+
+
+def get_lifetime_milestones(limit: int = 50) -> list[dict]:
+    """Get milestones across ALL sessions."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM milestones
+               ORDER BY milestone_id DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_recurring_patterns(pattern_type: str = "mistake", limit: int = 10) -> list[dict]:
+    """Find recurring patterns in journal entries (mistakes, lessons, etc.).
+
+    Scans all journal entries across all sessions to find repeated themes.
+    """
+    with get_db() as conn:
+        col = "mistakes_text" if pattern_type == "mistake" else "lessons_text"
+        rows = conn.execute(
+            f"""SELECT {col} as text, journal_date, session_id
+                FROM mind_journal_entries
+                WHERE {col} IS NOT NULL AND {col} != ''
+                ORDER BY journal_date DESC
+                LIMIT ?""",
+            (limit * 3,)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_lifetime_daily_reviews(limit: int = 50) -> list[dict]:
+    """Get daily reviews across ALL sessions."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM daily_reviews
+               ORDER BY review_id DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+# ---------------------------------------------------------------------------
+# capital_ledger helpers (v7.4.1 Financial Continuity)
+# ---------------------------------------------------------------------------
+
+def insert_capital_event(event_type: str, amount: float, balance_after: float = None,
+                         reason: str = None, session_id: int = None,
+                         version: str = None, notes: str = None) -> int:
+    """Record a capital event (funding, refill, withdrawal, correction)."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        cursor = conn.execute(
+            """INSERT INTO capital_ledger
+               (timestamp, event_type, amount, balance_after, reason, session_id, version, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (now, event_type, amount, balance_after, reason, session_id, version, notes)
+        )
+        return cursor.lastrowid
+
+
+def get_capital_events(limit: int = 50) -> list[dict]:
+    """Get all capital events."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM capital_ledger ORDER BY ledger_id DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_capital_summary() -> dict:
+    """Capital event summary."""
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total_events,
+                SUM(CASE WHEN event_type = 'refill' THEN amount ELSE 0 END) as total_refills,
+                SUM(CASE WHEN event_type = 'withdrawal' THEN amount ELSE 0 END) as total_withdrawals,
+                SUM(CASE WHEN event_type = 'initial_funding' THEN amount ELSE 0 END) as initial_funding
+            FROM capital_ledger
+        """).fetchone()
+        return dict_from_row(row) if row else {}
+
+
+# ---------------------------------------------------------------------------
+# lifetime_portfolio helpers (v7.4.1 Financial Continuity)
+# ---------------------------------------------------------------------------
+
+def get_lifetime_portfolio() -> dict | None:
+    """Get the singleton lifetime portfolio state."""
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM lifetime_portfolio WHERE id = 1").fetchone()
+        return dict_from_row(row)
+
+
+def upsert_lifetime_portfolio(**kwargs) -> None:
+    """Update or create the lifetime portfolio singleton.
+    On INSERT, cash MUST be explicitly provided — no hidden $100 fallback."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM lifetime_portfolio WHERE id = 1").fetchone()
+        if existing:
+            if not kwargs:
+                return  # nothing to update
+            sets = ", ".join(f"{k} = ?" for k in kwargs)
+            vals = list(kwargs.values())
+            conn.execute(f"UPDATE lifetime_portfolio SET {sets}, updated_at = ? WHERE id = 1",
+                         vals + [now])
+        else:
+            if "cash" not in kwargs:
+                raise ValueError("lifetime_portfolio INSERT requires explicit 'cash' — no hidden defaults")
+            kwargs["updated_at"] = now
+            kwargs["id"] = 1
+            cols = ", ".join(kwargs.keys())
+            ph = ", ".join("?" for _ in kwargs)
+            conn.execute(f"INSERT INTO lifetime_portfolio ({cols}) VALUES ({ph})",
+                         list(kwargs.values()))
+
+
+def sync_lifetime_portfolio(cash: float, btc_holdings: float, avg_entry: float,
+                             price: float, realized_pnl: float,
+                             total_trades: int, wins: int, losses: int,
+                             holds: int, blocked: int) -> None:
+    """Sync lifetime portfolio from current auto_trader state."""
+    equity = cash + btc_holdings * price
+    unrealized = btc_holdings * (price - avg_entry) if btc_holdings > 0 and avg_entry > 0 else 0
+
+    existing = get_lifetime_portfolio()
+    peak = max(equity, existing.get("peak_equity", 0) if existing else equity)
+    dd = ((peak - equity) / peak * 100) if peak > 0 else 0
+    max_dd = max(dd, existing.get("max_drawdown_pct", 0) if existing else 0)
+
+    upsert_lifetime_portfolio(
+        cash=round(cash, 4),
+        btc_holdings=round(btc_holdings, 8),
+        avg_entry_price=round(avg_entry, 2),
+        total_equity=round(equity, 4),
+        realized_pnl=round(realized_pnl, 6),
+        unrealized_pnl=round(unrealized, 6),
+        total_trades=total_trades,
+        total_wins=wins,
+        total_losses=losses,
+        total_holds=holds,
+        total_blocked=blocked,
+        peak_equity=round(peak, 4),
+        max_drawdown_pct=round(max_dd, 2),
+        last_price=round(price, 2),
+    )
+
+
+def get_trades_by_scope(scope: str = "session", session_id: int = None,
+                         version: str = None, limit: int = 100) -> tuple[list[dict], int]:
+    """Get trades filtered by scope: session, version, or lifetime."""
+    with get_db() as conn:
+        if scope == "lifetime":
+            rows = conn.execute(
+                "SELECT * FROM trade_ledger ORDER BY trade_id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            total = conn.execute("SELECT COUNT(*) as c FROM trade_ledger").fetchone()["c"]
+        elif scope == "version" and version:
+            rows = conn.execute(
+                """SELECT * FROM trade_ledger WHERE version_tag = ?
+                   ORDER BY trade_id DESC LIMIT ?""",
+                (version, limit)
+            ).fetchall()
+            total = conn.execute(
+                "SELECT COUNT(*) as c FROM trade_ledger WHERE version_tag = ?",
+                (version,)
+            ).fetchone()["c"]
+        elif scope == "session" and session_id:
+            rows = conn.execute(
+                """SELECT * FROM trade_ledger WHERE session_id = ?
+                   ORDER BY trade_id DESC LIMIT ?""",
+                (session_id, limit)
+            ).fetchall()
+            total = conn.execute(
+                "SELECT COUNT(*) as c FROM trade_ledger WHERE session_id = ?",
+                (session_id,)
+            ).fetchone()["c"]
+        else:
+            # No valid scope/id — return empty, not lifetime
+            return [], 0
+        return rows_to_dicts(rows), total
+
+
+def get_trade_stats_by_scope(scope: str = "session", session_id: int = None,
+                              version: str = None) -> dict:
+    """Get trade stats by scope."""
+    with get_db() as conn:
+        where = ""
+        params = []
+        if scope == "lifetime":
+            pass  # no WHERE — all trades
+        elif scope == "version" and version:
+            where = "WHERE version_tag = ?"
+            params = [version]
+        elif scope == "session" and session_id:
+            where = "WHERE session_id = ?"
+            params = [session_id]
+        else:
+            # Invalid scope/missing id — return empty stats
+            return {"total": 0, "buys": 0, "sells": 0, "holds": 0, "wins": 0,
+                    "losses": 0, "total_pnl": 0, "win_rate": 0, "scope": scope}
+
+        row = conn.execute(f"""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN action = 'BUY' THEN 1 ELSE 0 END) as buys,
+                SUM(CASE WHEN action = 'SELL' THEN 1 ELSE 0 END) as sells,
+                SUM(CASE WHEN action = 'HOLD' THEN 1 ELSE 0 END) as holds,
+                SUM(CASE WHEN action = 'SELL' AND pnl > 0 THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN action = 'SELL' AND pnl <= 0 THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN action = 'SELL' THEN pnl ELSE 0 END) as total_pnl,
+                AVG(CASE WHEN action = 'SELL' THEN pnl END) as avg_pnl,
+                MAX(CASE WHEN action = 'SELL' THEN pnl END) as best_trade,
+                MIN(CASE WHEN action = 'SELL' THEN pnl END) as worst_trade
+            FROM trade_ledger {where}
+        """, params).fetchone()
+        result = dict_from_row(row) if row else {}
+        sells = result.get("sells", 0) or 0
+        wins = result.get("wins", 0) or 0
+        result["win_rate"] = round(wins / sells * 100, 1) if sells > 0 else 0
+        result["scope"] = scope
+        return result

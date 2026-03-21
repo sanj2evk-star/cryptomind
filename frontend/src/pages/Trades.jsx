@@ -4,6 +4,7 @@ import { fmtLocalTimeShort } from "../hooks/useTime";
 import { Loading, ErrorBox, EmptyState } from "../components/StatusMessage";
 import TradeScatter from "../components/TradeScatter";
 import CumulativePnl from "../components/CumulativePnl";
+import ScopeToggle from "../components/ScopeToggle";
 
 /* ─── Helpers ─── */
 const fmt = (n) => `$${Number(n ?? 0).toFixed(4)}`;
@@ -184,6 +185,7 @@ export default function Trades() {
   // State
   const [viewMode, setViewMode] = useState("table"); // table | feed
   const [showHold, setShowHold] = useState(false);
+  const [scope, setScope] = useState("session"); // session | version | lifetime
   const [debugMode, setDebugMode] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
   const [trades, setTrades] = useState([]);
@@ -203,6 +205,7 @@ export default function Trades() {
   // Summary
   const { data: summary } = useApi("/auto/trades/summary", 30000);
   const { data: sysAge } = useApi("/v7/system-age", 30000);
+  const { data: scopedStats } = useApi(`/v7/trades/scoped?scope=${scope}&limit=5`, 30000);
 
   // Fetch trades
   const fetchTrades = useCallback(async (reset = false) => {
@@ -302,8 +305,26 @@ export default function Trades() {
           </button>
           {/* Debug toggle */}
           <button onClick={() => setDebugMode(!debugMode)} style={toggleBtn(debugMode)}>🧠 Debug</button>
+          <span style={{ width: 1, height: 16, background: "var(--border)" }} />
+          <ScopeToggle value={scope} onChange={setScope} compact/>
         </div>
       </div>
+
+      {/* Scoped Stats */}
+      {scopedStats?.stats && (
+        <div style={{
+          display: "flex", gap: 16, padding: "4px 10px", marginBottom: 6,
+          background: "var(--surface)", border: "1px solid var(--border)",
+          borderRadius: 6, fontSize: 10, flexWrap: "wrap",
+        }}>
+          <span>Scope: <b style={{color:"var(--text)"}}>{scope}</b></span>
+          <span>Trades: <b>{scopedStats.stats.total||0}</b></span>
+          <span>Wins: <b style={{color:"var(--green)"}}>{scopedStats.stats.wins||0}</b></span>
+          <span>Losses: <b style={{color:"var(--red)"}}>{scopedStats.stats.losses||0}</b></span>
+          <span>Win Rate: <b>{scopedStats.stats.win_rate||0}%</b></span>
+          <span>PnL: <b style={{color:(scopedStats.stats.total_pnl||0)>=0?"var(--green)":"var(--red)"}}>{(scopedStats.stats.total_pnl||0).toFixed(4)}</b></span>
+        </div>
+      )}
 
       {/* v7: Session strip */}
       {sysAge && (

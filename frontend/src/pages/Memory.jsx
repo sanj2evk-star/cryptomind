@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { Loading, ErrorBox, EmptyState } from "../components/StatusMessage";
+import ScopeToggle from "../components/ScopeToggle";
 
 const API = import.meta.env.VITE_API_URL || window.location.origin;
 
@@ -210,8 +211,11 @@ export default function Memory() {
   const { data: sessionsData } = useApi("/v7/sessions", 60000);
   const { data: adaptData } = useApi("/v7/adaptations?limit=10", 30000);
   const { data: allMemories } = useApi("/v7/memories?limit=20", 15000);
+  const { data: ltMemData } = useApi("/v7/lifetime/memories?scope=lifetime&limit=30", 30000);
+  const { data: ltJournalData } = useApi("/v7/lifetime/journals?scope=lifetime&limit=10", 60000);
 
   const [tab, setTab] = useState("overview");
+  const [memScope, setMemScope] = useState("session");
   const [generating, setGenerating] = useState(false);
 
   const generateReview = async () => {
@@ -317,10 +321,31 @@ export default function Memory() {
       {/* ── MEMORIES TAB ── */}
       {tab === "memories" && (
         <div>
-          {memories.length === 0 ? (
-            <EmptyState message="No memories yet. The system will learn from trade outcomes." />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              {memScope === "lifetime" ? `${ltMemData?.total || 0} lifetime memories` : `${memories.length} session memories`}
+            </span>
+            <ScopeToggle value={memScope} onChange={setMemScope} compact/>
+          </div>
+          {memScope === "lifetime" ? (
+            (ltMemData?.memories || []).length === 0 ? (
+              <EmptyState message="No lifetime memories yet." />
+            ) : (
+              <>
+                {ltMemData.summary?.oldest && (
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 8 }}>
+                    Oldest: {ltMemData.summary.oldest?.slice(0, 10)} · Newest: {ltMemData.summary.newest?.slice(0, 10)} · Avg confidence: {((ltMemData.summary.avg_confidence || 0) * 100).toFixed(0)}%
+                  </div>
+                )}
+                {(ltMemData.memories || []).map((m, i) => <MemoryCard key={m.memory_id || i} memory={m} />)}
+              </>
+            )
           ) : (
-            memories.map((m, i) => <MemoryCard key={m.memory_id || i} memory={m} />)
+            memories.length === 0 ? (
+              <EmptyState message="No memories yet. The system will learn from trade outcomes." />
+            ) : (
+              memories.map((m, i) => <MemoryCard key={m.memory_id || i} memory={m} />)
+            )
           )}
         </div>
       )}

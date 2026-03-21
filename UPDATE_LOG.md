@@ -330,4 +330,92 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.4.1 — News Transparency + Continuity Layer + Financial Persistence
+**Date:** 2026-03-22
+**Commit:** (pending)
+
+**What changed:**
+
+### News Transparency + Deep Inspection
+- **`news_classifier.py` (MODIFIED)**: Added `reasoning_text` (human-readable interpretation breakdown showing keyword hits, signals, category, impact, trust, verdict) and `extracted_signals` dict (structured bullish/bearish/hype/noise/relevance keywords + counts). Added `body` passthrough in `classify_batch()`.
+- **`mind_feed_engine.py` (MODIFIED)**: Feed meta now passes full detail: reasoning_text, body, url, trust, relevance, hype_score, bullish/bearish signals. Enables expandable feed items.
+- **`api.py` (MODIFIED)**: `_observer_classify_and_feed()` now persists ALL classified news (not just interesting/watch) with raw_summary, source_name, fetched_at, reasoning_text, extracted_signals_json. New endpoint: `/v7/news/detail/{id}` returns full deep inspection of any classified news item.
+- **`db.py` (MODIFIED)**: 5 new columns on `news_event_analysis` (raw_summary, source_name, fetched_at, reasoning_text, extracted_signals_json) + ALTER TABLE migration for existing DBs. New helper: `get_news_analysis_by_id()`.
+- **`Lab.jsx` (MODIFIED)**: FeedItem is now expandable for news items — click to reveal verdict badge, sentiment, scores, raw body, reasoning breakdown, bullish/bearish signals, source link. InterestingItem also expandable with same detail.
+
+### Continuity Layer — Persistent Identity Across Versions
+- **`db.py` (MODIFIED)**: 3 new tables:
+  - `lifetime_identity` (28): singleton row with total_cycles, total_trades, total_sessions, dominant_traits_json, continuity_score, memory_depth_score
+  - `capital_ledger` (29): tracks all capital events (initial_funding, refill, withdrawal, version_upgrade, correction) with amount, balance_after, reason
+  - `lifetime_portfolio` (30): persistent financial state (cash, btc_holdings, avg_entry, equity, realized_pnl, unrealized_pnl, wins, losses, peak_equity, max_drawdown_pct, refills)
+  Total: 30 tables.
+  Added 20+ new helper functions: lifetime_identity CRUD, capital_ledger CRUD, lifetime_portfolio sync, get_trades_by_scope (session/version/lifetime), get_trade_stats_by_scope, lifetime memories/journals/reflections/truth reviews/milestones/daily reviews queries, get_recurring_patterns.
+- **`session_manager.py` (MODIFIED)**: Version upgrades now preserve financial state via `_preserve_portfolio_on_upgrade()`. Lifetime identity initialized on first boot (seeded from system_state). Lifetime portfolio synced every 10 cycles. Capital events logged for version transitions. New `record_refill()` for adding capital without resetting stats.
+- **`mind_evolution.py` (MODIFIED)**: Continuity multiplier (up to +5%) based on lifetime cycles, sessions, trades. Longer-running systems get a maturity boost.
+- **`personality_engine.py` (MODIFIED)**: Now uses ALL historical data for personality computation — lifetime memories and lifetime trade summary included. 70% recent / 30% lifetime weighting via effective_trades. Dominant traits persisted to lifetime_identity. warm-up check uses effective_trades (max of session + lifetime).
+
+### API Additions (12 new endpoints)
+- `/v7/mind/identity` — system age, continuity score, dominant traits, version history
+- `/v7/lifetime/portfolio` — persistent financial state + capital summary
+- `/v7/lifetime/capital-events` — capital event log
+- `/v7/lifetime/refill` (POST) — add capital without resetting stats
+- `/v7/trades/scoped?scope=session|version|lifetime` — trades + stats by scope
+- `/v7/lifetime/memories?scope=session|lifetime` — memories by scope
+- `/v7/lifetime/journals?scope=session|lifetime` — journals by scope
+- `/v7/lifetime/reflections?scope=session|lifetime` — reflections by scope
+- `/v7/lifetime/truth-reviews?scope=session|lifetime` — truth reviews by scope
+- `/v7/lifetime/milestones` — all milestones across all sessions
+- `/v7/lifetime/patterns?pattern_type=mistake|lesson` — recurring patterns
+- `/v7/news/detail/{id}` — deep inspection of classified news
+
+### Frontend Changes
+- **`Lab.jsx`**: New System Identity card (total cycles, sessions, trades, continuity score, memories, version). New Lifetime Portfolio card (cash, BTC, equity, realized PnL, peak, max drawdown, refill count). Expandable FeedItem and InterestingItem components.
+- **`Trades.jsx`**: Added ScopeToggle (Session/Version/Lifetime) with scoped stats bar showing trades, wins, losses, win rate, PnL per scope.
+- **`Memory.jsx`**: Added ScopeToggle on Memories tab — session vs lifetime memory view with oldest/newest/avg confidence metadata.
+- **`ScopeToggle.jsx` (NEW)**: Reusable session/version/lifetime toggle component.
+
+### Tables NEVER reset on version change
+- experience_memory, daily_reviews, mind_journal_entries, news_truth_reviews, action_reflections, milestones, personality_snapshots, lifetime_mind_stats, evolution_snapshots, behavior_profile, adaptation_journal, capital_ledger, lifetime_portfolio, lifetime_identity
+
+**No trading logic changes.** All changes are in persistence, display, and observer layers.
+
+**What's right:**
+1. Financial state persists across version upgrades — no more reset to $100
+2. All classified news now stored (not just interesting/watch) — full audit trail
+3. News reasoning is fully explainable — keyword hits, signal counts, verdict logic
+4. Continuity score gives a measurable "system maturity" metric
+5. Capital ledger provides transparent funding/refill tracking
+6. Scope toggles let user view session vs version vs lifetime on key pages
+7. Personality uses lifetime data with recency weighting — survives upgrades
+8. Evolution score gets maturity boost for long-running systems
+9. Backward compatible — ALTER TABLE migration for existing DBs
+10. Refill system adds cash without resetting stats or PnL
+
+**What could be improved:**
+1. Performance page doesn't have scope toggle yet (easy add later)
+2. Journal page could benefit from lifetime view toggle
+3. Mind page could show lifetime evolution curve
+4. Leaderboard doesn't have version/lifetime modes yet
+5. Fresh-start mode (archive + new sandbox) not yet implemented
+6. Recurring patterns analysis is simple text matching — could use similarity scoring
+
+### Stabilization Pass — Bugs Found & Fixed
+
+| # | Bug | Severity | Fix |
+|---|-----|----------|-----|
+| 1 | Schema defaults `cash=100.0`, `total_equity=100.0`, `peak_equity=100.0` in lifetime_portfolio table | Medium | Changed all to `0.0` — no hidden $100 in schema |
+| 2 | `upsert_lifetime_portfolio()` had `setdefault("cash", 100.0)` fallback on INSERT | Medium | Removed — now raises ValueError if cash not explicitly provided |
+| 3 | `initial_funding` could re-fire if lifetime_portfolio row deleted | High | Added capital_ledger check — if initial_funding already logged, re-creates from last known balance |
+| 4 | Version upgrade event logged `balance_after=None` — no financial snapshot | Medium | Now captures and logs actual cash + equity at upgrade time |
+| 5 | `get_trades_by_scope()` returned lifetime trades when session_id=None | High | Session scope with no session_id now returns empty `([], 0)` |
+| 6 | `get_trade_stats_by_scope()` same issue — fell through to lifetime on missing session | High | Added explicit empty stats return for invalid scope/missing id |
+| 7 | Identity init counted archive sessions (pre-v7) in `total_sessions` | Medium | Filters out `pre-v7` sessions from count |
+| 8 | Refill POST had no idempotency guard — retries could duplicate | Critical | Added 10-second cooldown + amount validation + returns updated portfolio |
+| 9 | `InterestingItem` bs_risk comparison could crash on null | Low | Added `!=null` guard before comparison |
+| 10 | `sync_lifetime_portfolio()` used fallback `peak_equity=100.0` instead of current equity | Medium | Changed fallback to current equity value |
+
+**Deployment:** (pending user approval)
+
+---
+
 *This log is maintained after every version update for future reference.*
