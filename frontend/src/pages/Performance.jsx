@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -13,13 +14,30 @@ import {
 import { useApi } from "../hooks/useApi";
 import { Loading, ErrorBox, EmptyState } from "../components/StatusMessage";
 import MetricCard from "../components/MetricCard";
+import ScopeToggle from "../components/ScopeToggle";
 
 const COLORS = { wins: "#22c55e", losses: "#ef4444" };
 
+/* Confidence dot: low=grey, medium=amber, high=green */
+const CONF_DOT = { low: "#6b7280", medium: "#eab308", high: "#22c55e" };
+function ConfDot({ level }) {
+  const c = CONF_DOT[level] || CONF_DOT.low;
+  return (
+    <span title={`${level} confidence`} style={{
+      width: 7, height: 7, borderRadius: "50%", background: c,
+      flexShrink: 0, display: "inline-block",
+    }} />
+  );
+}
+
 export default function Performance() {
+  const [scope, setScope] = useState("session");
+
   const { data: perf, loading: pLoading, error: pError, retry: pRetry } = useApi("/performance", 30000);
   const { data: stratData, loading: sLoading, error: sError } = useApi("/strategies");
   const { data: tradeData } = useApi("/trades?limit=100");
+  const { data: scopedData } = useApi(`/v7/performance/scoped?scope=${scope}`, 30000);
+  const { data: patternsData } = useApi("/v7/mind/patterns", 60000);
 
   // 1. Loading state
   if (pLoading || sLoading) return <><h1>Performance</h1><Loading message="Loading performance..." /></>;
@@ -38,6 +56,8 @@ export default function Performance() {
   const metrics = perf || {};
   const strategies = stratData?.strategies || [];
   const trades = tradeData?.trades || [];
+  const scopedStats = scopedData?.stats || {};
+  const patterns = patternsData || {};
 
   const pieData = [
     { name: "Wins", value: metrics.wins || 0 },
@@ -83,11 +103,28 @@ export default function Performance() {
     );
   }
 
+  // Scoped stats display
+  const sTrades = scopedStats.sells || 0;
+  const sWins = scopedStats.wins || 0;
+  const sLosses = scopedStats.losses || 0;
+  const sWinRate = scopedStats.win_rate || 0;
+  const sPnl = scopedStats.total_pnl || 0;
+  const sBest = scopedStats.best_trade || 0;
+  const sWorst = scopedStats.worst_trade || 0;
+
+  // Top strengths + mistakes from pattern engine
+  const topStrengths = (patterns.top_strengths || []).slice(0, 3);
+  const topMistakes = (patterns.top_mistakes || []).slice(0, 3);
+
   // 4. Success state
   return (
     <>
-      <h1>Performance</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h1 style={{ margin: 0 }}>Performance</h1>
+        <ScopeToggle value={scope} onChange={setScope} />
+      </div>
 
+      {/* Today's metrics (always shown) */}
       <div className="card-grid">
         <MetricCard label="Trades Today" value={metrics.total_trades || 0} />
         <MetricCard
@@ -106,6 +143,38 @@ export default function Performance() {
           color="red"
         />
       </div>
+
+      {/* Scoped summary bar */}
+      {sTrades > 0 && (
+        <div style={{
+          display: "flex", gap: 16, flexWrap: "wrap", padding: "10px 16px",
+          background: "var(--surface)", border: "1px solid var(--border)",
+          borderRadius: 8, marginBottom: 16, alignItems: "center",
+        }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>
+            {scope}
+          </span>
+          <span style={{ fontSize: 12 }}>
+            <b>{sTrades}</b> <span style={{ color: "var(--text-muted)" }}>closed</span>
+          </span>
+          <span style={{ fontSize: 12 }}>
+            <b style={{ color: sWinRate >= 50 ? "var(--green)" : "var(--red)" }}>{sWinRate}%</b>
+            <span style={{ color: "var(--text-muted)" }}> win rate</span>
+          </span>
+          <span style={{ fontSize: 12 }}>
+            P&L: <b style={{ color: sPnl >= 0 ? "var(--green)" : "var(--red)" }}>${sPnl.toFixed(4)}</b>
+          </span>
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            W: <b style={{ color: "var(--green)" }}>{sWins}</b> / L: <b style={{ color: "var(--red)" }}>{sLosses}</b>
+          </span>
+          {sBest > 0 && (
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              Best: <span style={{ color: "var(--green)" }}>${sBest.toFixed(4)}</span>
+              {sWorst < 0 && <> · Worst: <span style={{ color: "var(--red)" }}>${sWorst.toFixed(4)}</span></>}
+            </span>
+          )}
+        </div>
+      )}
 
       {(pieData.length > 0 || regimeData.length > 0) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
@@ -144,6 +213,47 @@ export default function Performance() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Recurring Patterns (from pattern_insight_engine) */}
+      {(topStrengths.length > 0 || topMistakes.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+          {topStrengths.length > 0 && (
+            <div style={{
+              padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)",
+              borderRadius: 8, borderLeft: "3px solid #22c55e",
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#22c55e", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
+                Top Strengths
+              </div>
+              {topStrengths.map((s, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0" }}>
+                  <ConfDot level={s.confidence} />
+                  <span style={{ fontSize: 12, color: "var(--text)", flex: 1 }}>{s.label}</span>
+                  <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(seen {s.count}×)</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {topMistakes.length > 0 && (
+            <div style={{
+              padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)",
+              borderRadius: 8, borderLeft: "3px solid #ef4444",
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#ef4444", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
+                Recurring Mistakes
+              </div>
+              {topMistakes.map((m, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0" }}>
+                  <ConfDot level={m.confidence} />
+                  <span style={{ fontSize: 12, color: "var(--text)", flex: 1 }}>{m.label}</span>
+                  <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(seen {m.count}×)</span>
+                </div>
+              ))}
             </div>
           )}
         </div>

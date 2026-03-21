@@ -234,6 +234,7 @@ export default function MindPage() {
   const { data: lessonsData } = useApi("/v7/mind/lessons", 30000);
   const { data: timelineData } = useApi("/v7/mind/timeline", 60000);
   const { data: historyData } = useApi("/v7/mind/history?limit=50", 60000);
+  const { data: patternsData } = useApi("/v7/mind/patterns", 60000);
   const [tab, setTab] = useState("overview");
 
   const skills = skillsData?.skills || [];
@@ -446,6 +447,35 @@ export default function MindPage() {
               )}
             </div>
           </div>
+
+          {/* Recurring Patterns (full width) */}
+          {patternsData && !patternsData.warming_up && (patternsData.insights || []).length > 0 && (
+            <div style={{
+              gridColumn: "1 / -1", padding: "14px 16px", background: "var(--surface)",
+              border: "1px solid var(--border)", borderRadius: 8, borderLeft: "3px solid #8b5cf6",
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>
+                Recurring Patterns
+              </div>
+              {(patternsData.insights || []).slice(0, 3).map((ins, i) => {
+                const confColors = { low: "#6b7280", medium: "#eab308", high: "#22c55e" };
+                const cc = confColors[ins.confidence] || confColors.low;
+                return (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "4px 0",
+                    borderBottom: i < Math.min((patternsData.insights || []).length, 3) - 1 ? "1px solid var(--border)" : "none",
+                  }}>
+                    <span title={`${ins.confidence} confidence`} style={{
+                      width: 7, height: 7, borderRadius: "50%", background: cc,
+                      flexShrink: 0,
+                    }} />
+                    <span style={{ fontSize: 12, color: "var(--text)", flex: 1 }}>{ins.insight}</span>
+                    <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(seen {ins.count}×)</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Evolution History chart (full width) */}
           {history.length > 1 && (

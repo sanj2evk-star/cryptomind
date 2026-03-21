@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { fmtLocalTime, getTimezoneLabel } from "../hooks/useTime";
 import { Loading, ErrorBox, EmptyState } from "../components/StatusMessage";
+import ScopeToggle from "../components/ScopeToggle";
 
 const TZ_LABEL = getTimezoneLabel();
 
@@ -56,8 +58,8 @@ function JournalEntry({ entry }) {
   const exec = entry.execution || {};
   const pf = entry.portfolio_after || {};
 
-  const action = dec.action || "HOLD";
-  const score = dec.score ?? 50;
+  const action = dec.action || entry.action || "HOLD";
+  const score = dec.score ?? entry.score ?? 50;
   const conf = ((dec.confidence ?? 0) * 100).toFixed(0);
   const volRegime = adaptive.vol_regime || ind.vol_regime || "unknown";
   const buyT = adaptive.buy_threshold ?? 65;
@@ -70,6 +72,47 @@ function JournalEntry({ entry }) {
 
   const volColors = { high: "#ef4444", low: "#6b7280", normal: "#3b82f6" };
   const volLabels = { high: "HIGH VOL", low: "LOW VOL", normal: "NORMAL" };
+
+  // For scoped trade_ledger entries (simpler format)
+  const isLedger = !!entry.trade_id;
+  if (isLedger) {
+    const pnl = entry.pnl || 0;
+    return (
+      <div style={{
+        background: "var(--surface)", border: "1px solid var(--border)",
+        borderRadius: 8, padding: 14, marginBottom: 10,
+        borderLeft: `3px solid ${actionColor(action)}`,
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "monospace" }}>
+              #{entry.trade_id}
+            </span>
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              {fmtLocalTime(entry.timestamp)}
+            </span>
+            <span className={`tag ${action.toLowerCase()}`} style={{ fontSize: 12, padding: "2px 8px" }}>
+              {action}
+            </span>
+            {entry.strategy && <Pill text={entry.strategy} color="#8b5cf6" />}
+          </div>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{fmtPrice(entry.price)}</span>
+        </div>
+        <div style={{ display: "flex", gap: 16, fontSize: 11, color: "var(--text-muted)" }}>
+          {entry.amount > 0 && <span>Amount: <b>{Number(entry.amount).toFixed(6)}</b></span>}
+          {action === "SELL" && <span>P&L: <b style={{ color: pnl >= 0 ? "var(--green)" : "var(--red)" }}>${pnl.toFixed(4)}</b></span>}
+          {entry.score > 0 && <span>Score: <b>{entry.score}</b></span>}
+          {entry.confidence > 0 && <span>Conf: <b>{(entry.confidence * 100).toFixed(0)}%</b></span>}
+          {entry.market_condition && <span>Regime: <b>{entry.market_condition}</b></span>}
+        </div>
+        {entry.reasoning && (
+          <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5, marginTop: 6 }}>
+            {entry.reasoning}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -151,44 +194,129 @@ function JournalEntry({ entry }) {
   );
 }
 
+/* Confidence dot: low=grey, medium=amber, high=green */
+const CONF_DOT = { low: "#6b7280", medium: "#eab308", high: "#22c55e" };
+function ConfDot({ level }) {
+  const c = CONF_DOT[level] || CONF_DOT.low;
+  return (
+    <span title={`${level} confidence`} style={{
+      width: 7, height: 7, borderRadius: "50%", background: c,
+      flexShrink: 0, display: "inline-block",
+    }} />
+  );
+}
+
+/* Recurring Patterns card */
+function PatternsCard({ patterns }) {
+  if (!patterns || patterns.warming_up) return null;
+
+  const insights = patterns.insights || [];
+  if (insights.length === 0) return null;
+
+  return (
+    <div style={{
+      padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)",
+      borderRadius: 8, marginBottom: 16, borderLeft: "3px solid #8b5cf6",
+    }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>
+        Recurring Patterns
+      </div>
+      {insights.map((ins, i) => {
+        return (
+          <div key={i} style={{
+            display: "flex", alignItems: "flex-start", gap: 8, padding: "4px 0",
+            borderBottom: i < insights.length - 1 ? "1px solid var(--border)" : "none",
+          }}>
+            <ConfDot level={ins.confidence} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.4 }}>
+                {ins.insight}
+              </div>
+              <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                {ins.label} — seen {ins.count} times
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Journal() {
+  const [scope, setScope] = useState("session");
+
+  // Default journal (auto-trader log entries) — always session-fresh
   const { data, loading, error, retry } = useApi("/journal?limit=20", 10000);
+  // Scoped data from trade_ledger
+  const { data: scopedData } = useApi(`/v7/journal/scoped?scope=${scope}&limit=30`, 15000);
+  // Pattern engine
+  const { data: patternsData } = useApi("/v7/mind/patterns", 60000);
+
+  // Use scoped entries when not in "session" scope, otherwise use live journal
+  const useScoped = scope !== "session";
+  const entries = useScoped ? (scopedData?.entries || []) : (data?.entries || []);
+  const totalCount = useScoped ? (scopedData?.total || 0) : (data?.count || 0);
+  const scopedStats = scopedData?.stats || {};
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h1 style={{ margin: 0 }}>Trade Journal</h1>
-        <button
-          onClick={retry}
-          style={{
-            padding: "6px 14px", background: "var(--surface)",
-            border: "1px solid var(--border)", borderRadius: 6,
-            color: "var(--text)", fontSize: 13, cursor: "pointer",
-          }}
-        >
-          Refresh
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ScopeToggle value={scope} onChange={setScope} />
+          <button
+            onClick={retry}
+            style={{
+              padding: "6px 14px", background: "var(--surface)",
+              border: "1px solid var(--border)", borderRadius: 6,
+              color: "var(--text)", fontSize: 13, cursor: "pointer",
+            }}
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
-      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 12 }}>
         Every trading cycle is logged here — see how the AI thinks, what signals it reads, and why it acts or holds.
         <span style={{ opacity: 0.5, marginLeft: 8 }}>Times shown in {TZ_LABEL}</span>
       </p>
 
-      {loading && !data && <Loading message="Loading journal..." />}
-      {error && !data && <ErrorBox message={error} onRetry={retry} />}
-
-      {data && data.entries?.length === 0 && (
-        <EmptyState title="No journal entries yet" message="The auto-trader will log entries as it runs. Wait a few cycles." />
+      {/* Scoped stats bar */}
+      {useScoped && scopedStats.sells > 0 && (
+        <div style={{
+          display: "flex", gap: 16, flexWrap: "wrap", padding: "8px 14px",
+          background: "var(--surface)", border: "1px solid var(--border)",
+          borderRadius: 6, marginBottom: 12, fontSize: 11, alignItems: "center",
+        }}>
+          <span style={{ fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase" }}>{scope}</span>
+          <span>{scopedStats.sells} closed</span>
+          <span>Win rate: <b style={{ color: scopedStats.win_rate >= 50 ? "var(--green)" : "var(--red)" }}>{scopedStats.win_rate}%</b></span>
+          <span>P&L: <b style={{ color: (scopedStats.total_pnl || 0) >= 0 ? "var(--green)" : "var(--red)" }}>${(scopedStats.total_pnl || 0).toFixed(4)}</b></span>
+        </div>
       )}
 
-      {data?.entries?.map((entry, i) => (
-        <JournalEntry key={`${entry.timestamp}-${i}`} entry={entry} />
+      {/* Recurring Patterns card */}
+      <PatternsCard patterns={patternsData} />
+
+      {loading && !data && !useScoped && <Loading message="Loading journal..." />}
+      {error && !data && !useScoped && <ErrorBox message={error} onRetry={retry} />}
+
+      {entries.length === 0 && (
+        <EmptyState
+          title={useScoped ? `No entries in ${scope} scope` : "No journal entries yet"}
+          message={useScoped ? "Try a different scope or wait for more trades." : "The auto-trader will log entries as it runs. Wait a few cycles."}
+        />
+      )}
+
+      {entries.map((entry, i) => (
+        <JournalEntry key={`${entry.timestamp || entry.trade_id}-${i}`} entry={entry} />
       ))}
 
-      {data && (
+      {entries.length > 0 && (
         <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "right", marginTop: 12 }}>
-          Showing {data.entries?.length ?? 0} of {data.count ?? 0} entries (newest first)
+          Showing {entries.length} of {totalCount} entries (newest first)
         </p>
       )}
     </>

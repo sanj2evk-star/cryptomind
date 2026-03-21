@@ -4,6 +4,76 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.5.1 — Scope Continuity + Recurring Pattern Detection + Confidence Calibration
+**Date:** 2026-03-22
+
+**What changed:**
+
+### Scope Continuity Cleanup
+- **Performance page**: Added ScopeToggle (Session / Version / Lifetime) with scoped stats bar showing closed trades, win rate, P&L, best/worst trades
+- **Journal page**: Added ScopeToggle — session scope shows live auto-trader journal, version/lifetime scopes query trade_ledger for historical data
+- **Journal scoped stats bar**: Shows scope-level win rate and P&L when viewing version/lifetime
+
+### Recurring Pattern Detection Engine
+- New module: `pattern_insight_engine.py` — rule-based keyword cluster matching across journals, reflections, truth reviews, memories, and daily reviews
+- Detects 8 mistake patterns (early_entry, late_exit, overtrading, etc.) and 7 strength patterns (patience_wins, discipline, risk_control, etc.)
+- Identifies 5 narrative rejection types (bullish_hype, bearish_fud, regulatory_fear, etc.)
+- Generates human-readable rotating insight bullets per pattern
+- Observer-only, no LLM dependency, 3-minute cache
+
+### New API Endpoints
+- `GET /v7/mind/patterns` — returns full recurring pattern analysis
+- `GET /v7/performance/scoped?scope=session|version|lifetime` — scoped performance stats
+- `GET /v7/journal/scoped?scope=session|version|lifetime&limit=30` — scoped journal entries with stats
+
+### UI Updates
+- **Performance page**: New "Top Strengths" and "Recurring Mistakes" cards below charts
+- **Journal page**: "Recurring Patterns" card with color-coded insights (green=strength, red=mistake, amber=narrative)
+- **Mind page (Overview tab)**: "Recurring Patterns" card showing top 3 insights with count badges
+
+### Pattern Confidence Calibration
+- Every pattern now includes a `confidence` field: `low`, `medium`, or `high`
+- Thresholds: evidence < 3 → low, 3–6 → medium, > 6 → high
+- Cross-source validation: confidence downgraded if evidence comes from only 1 data source
+- `source_count` field tracks how many distinct sources (journals, reflections, daily reviews, memories) contributed
+- Stricter warm-up guard: requires both `total_trades >= 10` AND `reflections >= 5` before surfacing any patterns
+- Warming-up state returns empty patterns with clear message: "Still too early to detect meaningful patterns."
+
+### Tone Correction
+- All insight templates rewritten to be calm, observational, not absolute
+- No "always", "never", or "you" — system speaks about itself, not the user
+- Examples: "Entries may still be slightly early" instead of "Early conviction still gets punished"
+
+### UI Confidence Indicators
+- All 3 pages (Mind, Journal, Performance) show confidence dots per pattern:
+  - Grey dot = low confidence (early signal)
+  - Amber dot = medium confidence (emerging)
+  - Green dot = high confidence (well-established)
+- Evidence counts shown as "(seen N×)" instead of raw "×N"
+- Dots have hover title showing confidence level
+
+### Constraints followed
+- No new DB tables — reads from existing 33 tables
+- Observer-only: no writes to portfolio or trading state
+- All new data hooks use polling with appropriate intervals (30s–60s)
+- ScopeToggle reuses existing component from v7.4
+
+**What's right:**
+- Clean scope separation: session=live data, version/lifetime=historical trade_ledger
+- Pattern engine is extensible — easy to add new keyword clusters
+- No performance impact — pattern computation cached for 3 minutes
+- Journal gracefully handles both live auto-trader entries and ledger entries
+
+**What could be improved:**
+- Scoped journal entries from trade_ledger have less detail than live auto-trader journal entries (no signals/indicators breakdown)
+- Pattern engine uses static keyword matching — could evolve to use TF-IDF or embeddings
+- Performance page scoped bar could show max drawdown per scope (would need new DB query)
+- Leaderboard scope toggle deferred — strategy-level data doesn't map cleanly to session/version scopes
+
+**Deployment:** Pending approval
+
+---
+
 ## v7.5.0 — Crowd Sentiment + Belief vs Reality + Auth/Dashboard Stability
 **Date:** 2026-03-22
 
@@ -63,7 +133,9 @@ Set on Render: Dashboard → Environment → Add `JWT_SECRET`
 - Crowd sentiment trend over time visualization
 - Crowd accuracy score badge in Lab
 
-**Deployment:** *(pending — JWT_SECRET must be set on Render first)*
+**Commit:** `b64389b`
+**Deployment:** Mac + Render ✅
+**REQUIRED:** Set `JWT_SECRET` env var on Render Dashboard → Environment
 
 ---
 
@@ -315,7 +387,9 @@ Set on Render: Dashboard → Environment → Add `JWT_SECRET`
 7. Lab page responsiveness — 3-column layout may need collapse points for iPad
 8. Bullshit radar history chart — currently snapshot only, no historical trend view
 
-**Deployment:** *(pending — JWT_SECRET must be set on Render first)*
+**Commit:** `b64389b`
+**Deployment:** Mac + Render ✅
+**REQUIRED:** Set `JWT_SECRET` env var on Render Dashboard → Environment
 
 ---
 

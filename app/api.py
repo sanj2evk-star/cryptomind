@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.5 — Observer Core: Crowd Sentiment + Belief vs Reality",
-    version="7.5.0",
+    description="v7.5.1 — Observer Core: Patterns + Scope Continuity",
+    version="7.5.1",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -1948,6 +1948,77 @@ def get_recurring_patterns(pattern_type: str = Query(default="mistake", regex="^
         }
     except Exception as e:
         return {"error": str(e), "patterns": [], "pattern_type": pattern_type, "total": 0}
+
+
+# ---------------------------------------------------------------------------
+# Pattern Insight Engine — Recurring Patterns (v7.5.1)
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/mind/patterns")
+def get_mind_patterns():
+    """Recurring behavioral patterns across all data sources."""
+    try:
+        import pattern_insight_engine
+        return pattern_insight_engine.compute()
+    except Exception as e:
+        return {
+            "top_mistakes": [], "top_strengths": [],
+            "top_rejected_narratives": [], "insights": [],
+            "truth_accuracy": {"accuracy_pct": 0, "total_graded": 0, "verdicts": {}},
+            "grade_distribution": {}, "patience_stats": {},
+            "data_depth": {"total": 0}, "warming_up": True,
+            "error": str(e),
+        }
+
+
+@app.get("/v7/performance/scoped")
+def get_performance_scoped(
+    scope: str = Query(default="session", regex="^(session|version|lifetime)$"),
+):
+    """Performance stats filtered by scope: session, version, or lifetime."""
+    try:
+        import db as v7db
+        import session_manager
+
+        sid = session_manager.get_session_id()
+        version = session_manager.APP_VERSION
+
+        stats = v7db.get_trade_stats_by_scope(
+            scope=scope, session_id=sid, version=version
+        )
+        return {"stats": stats, "scope": scope}
+    except Exception as e:
+        return {"error": str(e), "stats": {}, "scope": scope}
+
+
+@app.get("/v7/journal/scoped")
+def get_journal_scoped(
+    scope: str = Query(default="session", regex="^(session|version|lifetime)$"),
+    limit: int = Query(default=30, ge=1, le=100),
+):
+    """Journal entries filtered by scope. Uses trade_ledger for scoped data."""
+    try:
+        import db as v7db
+        import session_manager
+
+        sid = session_manager.get_session_id()
+        version = session_manager.APP_VERSION
+
+        trades, total = v7db.get_trades_by_scope(
+            scope=scope, session_id=sid, version=version, limit=limit
+        )
+        stats = v7db.get_trade_stats_by_scope(
+            scope=scope, session_id=sid, version=version
+        )
+        return {
+            "entries": trades,
+            "stats": stats,
+            "scope": scope,
+            "total": total,
+            "count": len(trades),
+        }
+    except Exception as e:
+        return {"error": str(e), "entries": [], "stats": {}, "scope": scope, "total": 0, "count": 0}
 
 
 # ---------------------------------------------------------------------------
