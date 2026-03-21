@@ -36,3 +36,6 @@ deploy/
 
 # Data users
 data/users/
+
+# Secrets
+data/.jwt_secret

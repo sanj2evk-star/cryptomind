@@ -29,6 +29,7 @@ Tables:
    28) lifetime_identity    — persistent identity singleton (v7.4.1 Continuity)
    29) capital_ledger       — capital events: funding, refills, withdrawals (v7.4.1)
    30) lifetime_portfolio   — financial state persisting across versions (v7.4.1)
+   31) crowd_sentiment_events — crowd belief snapshots for belief vs reality (v7.5)
 """
 
 from __future__ import annotations
@@ -811,6 +812,22 @@ CREATE TABLE IF NOT EXISTS lifetime_portfolio (
 
 CREATE INDEX IF NOT EXISTS idx_capital_ledger_type ON capital_ledger(event_type);
 CREATE INDEX IF NOT EXISTS idx_capital_ledger_ts ON capital_ledger(timestamp);
+
+-- 31) crowd_sentiment_events: crowd belief snapshots (v7.5 Crowd Sentiment)
+CREATE TABLE IF NOT EXISTS crowd_sentiment_events (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp               TEXT NOT NULL,
+    source                  TEXT NOT NULL DEFAULT 'internal_sentiment',
+    event_id                TEXT,
+    question                TEXT,
+    crowd_probability       REAL NOT NULL DEFAULT 0.5,
+    bias                    TEXT NOT NULL DEFAULT 'neutral',
+    confidence_strength     REAL NOT NULL DEFAULT 0.0,
+    notes_json              TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_crowd_sentiment_ts ON crowd_sentiment_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_crowd_sentiment_bias ON crowd_sentiment_events(bias);
 """
 
 
@@ -3044,3 +3061,46 @@ def get_trade_stats_by_scope(scope: str = "session", session_id: int = None,
         result["win_rate"] = round(wins / sells * 100, 1) if sells > 0 else 0
         result["scope"] = scope
         return result
+
+
+# ---------------------------------------------------------------------------
+# crowd_sentiment_events helpers (v7.5 Crowd Sentiment)
+# ---------------------------------------------------------------------------
+
+def insert_crowd_sentiment_event(source: str, event_id: str, question: str,
+                                  crowd_probability: float, bias: str,
+                                  confidence_strength: float,
+                                  notes_json: str = None) -> int:
+    """Insert a crowd sentiment snapshot."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        cursor = conn.execute(
+            """INSERT INTO crowd_sentiment_events
+               (timestamp, source, event_id, question, crowd_probability,
+                bias, confidence_strength, notes_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (now, source, event_id, question, crowd_probability,
+             bias, confidence_strength, notes_json)
+        )
+        return cursor.lastrowid
+
+
+def get_crowd_sentiment_events(limit: int = 50) -> list[dict]:
+    """Get recent crowd sentiment events, newest first."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT * FROM crowd_sentiment_events
+               ORDER BY id DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_crowd_sentiment_latest() -> dict | None:
+    """Get the most recent crowd sentiment event."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT * FROM crowd_sentiment_events
+               ORDER BY id DESC LIMIT 1"""
+        ).fetchone()
+        return dict_from_row(row)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Routes, Route, NavLink } from "react-router-dom";
 import { getToken, clearToken, BASE } from "./hooks/useApi";
 import Login from "./pages/Login";
@@ -17,16 +17,25 @@ import LabPage from "./pages/Lab";
 
 function useHealthCheck() {
   const [status, setStatus] = useState("checking");
+  const retryRef = useRef(0);
 
   const check = useCallback(async () => {
     setStatus("checking");
     try {
       const res = await fetch(`${BASE}/health`, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(8000),  // increased from 5s for cold starts
       });
       const data = await res.json();
       setStatus(data.status === "ok" ? "ok" : "down");
+      retryRef.current = 0;
     } catch {
+      // On first failure, retry once after 3s (Render cold start)
+      if (retryRef.current < 2) {
+        retryRef.current += 1;
+        console.debug(`[health] Retry ${retryRef.current}/2 after cold start delay...`);
+        setTimeout(() => check(), 3000);
+        return;
+      }
       setStatus("down");
     }
   }, []);
@@ -36,6 +45,58 @@ function useHealthCheck() {
   }, [check]);
 
   return { status, retry: check };
+}
+
+// ---------------------------------------------------------------------------
+// Auth bootstrapping: validate token on app load
+// ---------------------------------------------------------------------------
+
+function useAuthBootstrap() {
+  const [state, setState] = useState("checking"); // checking | valid | invalid
+  const checked = useRef(false);
+
+  useEffect(() => {
+    if (checked.current) return;
+    checked.current = true;
+
+    const token = getToken();
+    if (!token) {
+      console.debug("[auth] No token found — starting fresh");
+      setState("invalid");
+      return;
+    }
+
+    // Validate token against an auth-protected endpoint
+    async function validate() {
+      try {
+        const res = await fetch(`${BASE}/status`, {
+          headers: { "Authorization": `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (res.ok) {
+          console.debug("[auth] Session restored — token validated against /status");
+          setState("valid");
+        } else if (res.status === 401) {
+          console.debug("[auth] Stored token invalid/expired — clearing");
+          clearToken();
+          setState("invalid");
+        } else {
+          // Backend error (500, 503, etc.) but not auth-related — keep token
+          console.debug(`[auth] Backend returned ${res.status}, keeping token`);
+          setState("valid");
+        }
+      } catch {
+        // Network error — can't validate, keep token (benefit of doubt)
+        // If token is actually bad, the 3-consecutive-401 guard will catch it later
+        console.debug("[auth] Cannot reach backend to validate — keeping stored token");
+        setState("valid");
+      }
+    }
+
+    validate();
+  }, []);
+
+  return state;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,7 +122,7 @@ function BackendDown({ onRetry }) {
           display: "block", padding: "6px 12px", background: "var(--bg)",
           borderRadius: 6, fontSize: 13, marginBottom: 20, color: "var(--blue)",
         }}>
-          {BASE}
+          {BASE || window.location.origin}
         </code>
         <p style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 20 }}>
           Start it with: <code>python3 run_api.py</code>
@@ -96,23 +157,37 @@ function StartupCheck() {
 
 export default function App() {
   const { status: health, retry: retryHealth } = useHealthCheck();
-  const [authed, setAuthed] = useState(!!getToken());
+  const authState = useAuthBootstrap();
+  const [authed, setAuthed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const logoutGuardRef = useRef(false); // prevent logout loops
+
+  // Sync auth state once bootstrap completes
+  useEffect(() => {
+    if (authState === "valid") setAuthed(true);
+    else if (authState === "invalid") setAuthed(false);
+  }, [authState]);
 
   const handleLogout = useCallback(() => {
+    // Prevent multiple rapid logouts (e.g., from several useApi hooks firing at once)
+    if (logoutGuardRef.current) return;
+    logoutGuardRef.current = true;
+    setTimeout(() => { logoutGuardRef.current = false; }, 2000);
+
+    console.debug("[auth] Logging out");
     clearToken();
     setAuthed(false);
   }, []);
 
-  // Listen for 401 from any useApi call
+  // Listen for auth:logout from useApi's auth guard
   useEffect(() => {
     function onUnauth() { handleLogout(); }
     window.addEventListener("auth:logout", onUnauth);
     return () => window.removeEventListener("auth:logout", onUnauth);
   }, [handleLogout]);
 
-  // 1. Checking backend
-  if (health === "checking") return <StartupCheck />;
+  // 1. Checking backend or auth
+  if (health === "checking" || authState === "checking") return <StartupCheck />;
 
   // 2. Backend down
   if (health === "down") return <BackendDown onRetry={retryHealth} />;

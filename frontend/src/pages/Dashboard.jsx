@@ -141,8 +141,10 @@ export default function Dashboard() {
     return () => clearTimeout(timer);
   }, [autoTrades, proMode]);
 
+  // Only show full-page loading on FIRST load (no data yet)
+  // Once we have data, keep showing it even if a poll fails
   if (lLoad && !live) return <><h1>Dashboard</h1><Loading message="Connecting to auto-trader..." /></>;
-  if (lErr && !live) return <><h1>Dashboard</h1><ErrorBox message={lErr} onRetry={refreshAll} /></>;
+  if (lErr && !live) return <><h1>Dashboard</h1><ErrorBox message={lErr === "unauthorized" ? "Session expired — please log in again" : lErr} onRetry={refreshAll} /></>;
 
   // Data extraction
   const running = live?.running ?? false;

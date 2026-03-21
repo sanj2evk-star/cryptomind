@@ -168,6 +168,37 @@ def _markers_from_regime_changes(snapshots: list[dict], session_id: int) -> list
     return markers
 
 
+def _markers_from_crowd_events(events: list[dict], session_id: int) -> list[dict]:
+    """Create markers from crowd sentiment divergence events."""
+    markers = []
+    for ev in events:
+        notes = {}
+        try:
+            import json as _json
+            notes = _json.loads(ev.get("notes_json") or "{}") or {}
+        except Exception:
+            pass
+
+        insight = notes.get("insight", "")
+        alignment = notes.get("alignment_reason", "")
+        bias = ev.get("bias", "neutral")
+        prob = ev.get("crowd_probability", 0.5)
+
+        title = f"Crowd: {bias} ({prob*100:.0f}%)"
+        detail = insight or alignment or f"Crowd sentiment snapshot — {bias}"
+
+        markers.append({
+            "session_id": session_id,
+            "marker_type": "crowd_sentiment",
+            "title": title,
+            "detail": detail,
+            "importance": 3,
+            "timestamp": ev.get("timestamp", ""),
+            "_sort_ts": ev.get("timestamp", ""),
+        })
+    return markers
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -198,6 +229,13 @@ def build_replay(session_id: int = None, persist: bool = True) -> dict:
     milestones = db.get_milestones(session_id=sid, limit=20)
     snapshots = db.get_recent_snapshots(sid, limit=200)
 
+    # Crowd sentiment events
+    crowd_events = []
+    try:
+        crowd_events = db.get_crowd_sentiment_events(limit=20)
+    except Exception:
+        pass
+
     # Generate markers
     all_markers = []
     all_markers.extend(_markers_from_trades(trades_list, sid))
@@ -205,6 +243,7 @@ def build_replay(session_id: int = None, persist: bool = True) -> dict:
     all_markers.extend(_markers_from_mind_states(mind_states, sid))
     all_markers.extend(_markers_from_milestones(milestones, sid))
     all_markers.extend(_markers_from_regime_changes(snapshots, sid))
+    all_markers.extend(_markers_from_crowd_events(crowd_events, sid))
 
     # Sort by timestamp
     all_markers.sort(key=lambda m: m.get("_sort_ts", ""))

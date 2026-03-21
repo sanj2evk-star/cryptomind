@@ -4,6 +4,69 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.5.0 — Crowd Sentiment + Belief vs Reality + Auth/Dashboard Stability
+**Date:** 2026-03-22
+
+**What changed:**
+
+### Auth + Dashboard Stability Fixes
+- **JWT secret now stable across restarts**: production REQUIRES `JWT_SECRET` env var (fails loudly if missing), dev uses file-based persistence
+- **Token expiry**: increased from 24h → 72h (desktop app friendly)
+- **3-consecutive-401 auth guard**: single transient 401 no longer triggers logout; needs 3 within 15s
+- **useApi retry on 401**: retries once after 2s delay before counting toward threshold
+- **Auth bootstrap**: validates stored token against `/status` (auth-protected) on app load
+- **Health check retry**: increased timeout to 8s, added 2 automatic retries for Render cold starts
+- **Logout loop guard**: prevents rapid-fire logout from multiple polling hooks
+- **Dashboard data preservation**: once data received, preserved across failed polls (no blank screen)
+- **Production detection**: `RENDER` env var triggers strict JWT_SECRET enforcement
+
+### Deployment requirement
+**JWT_SECRET MUST be set as a Render environment variable.**
+Generate: `python3 -c "import os; print(os.urandom(32).hex())"`
+Set on Render: Dashboard → Environment → Add `JWT_SECRET`
+
+### Crowd Sentiment Layer
+- New module: `crowd_sentiment_engine.py` — observes crowd belief, compares to price reality, detects alignment vs divergence
+- New DB table: `crowd_sentiment_events` (table 31, 33 total) — persists crowd belief snapshots
+- New API endpoints: `/v7/crowd/latest`, `/v7/crowd/belief-vs-reality`, `/v7/crowd/history`, `/v7/crowd/truth`
+- New "Belief vs Reality" panel in Lab: crowd bias, confidence, price trend, alignment badge, divergence bar (0–100), one-liner insight
+- Integrated into observer pipeline: crowd sentiment computed every news cycle, feed items emitted on divergence
+- `bullshit_radar.py`: now includes crowd_sentiment overlay in radar state
+- `contextual_summary_engine.py`: now includes crowd_vs_reality in daily context summary
+- `mind_feed_engine.py`: two new feed types (crowd_divergence, crowd_aligned), new `on_crowd_sentiment()` handler
+- `replay_engine.py`: crowd sentiment markers appear in session replay timeline
+- `news_truth_validator.py`: wired for future crowd truth reviews via `evaluate_past_beliefs()`
+- Warm-up states: "Crowd lens warming up." / "Not enough belief data yet." / "Watching for crowd signals."
+- Synthetic data source (based on bullshit_radar sentiment balance) — designed for easy Polymarket swap later
+
+**How divergence is computed:**
+- Crowd bias (bullish/bearish/neutral) derived from news sentiment balance via bullshit_radar
+- Price trend (up/down/flat) from recent cycle snapshot price comparison (0.15% threshold)
+- Alignment: crowd bullish + price up → aligned; crowd bullish + price down → diverging; weak signals → unclear
+- Divergence score (0–100): weighted combination of crowd confidence (40%), price change magnitude (30%), and base divergence factor (30%)
+
+**Assumptions / placeholder limitations:**
+- Crowd data is currently synthetic (derived from news sentiment) — not from real prediction markets
+- `_fetch_crowd_data()` is the single function to replace when wiring Polymarket or similar APIs
+- `data_source` field currently reads "synthetic" — will switch to "polymarket" etc.
+- Truth validation of crowd beliefs is basic (price-at-record vs current-price) — designed for future delayed-window enhancement
+
+**What's right:**
+- Strictly observer-only — no trade triggers, no execution influence
+- Clean modular design: one new module, integration via existing pipelines
+- Safe fallbacks: all endpoints return valid structures even with no data
+- Backward-compatible: new table via `CREATE TABLE IF NOT EXISTS`, existing DBs unaffected
+
+**What could be improved:**
+- Real prediction market API integration (Polymarket, Kalshi, etc.)
+- Delayed-window crowd truth validation (like news_truth_validator's +5/+20/+100 cycles)
+- Crowd sentiment trend over time visualization
+- Crowd accuracy score badge in Lab
+
+**Deployment:** *(pending — JWT_SECRET must be set on Render first)*
+
+---
+
 ## v5.1 — Rebalance Discipline vs Exploration
 **Date:** Pre-v6 era
 **Commit:** `75181f4`
@@ -252,7 +315,7 @@ A running record of every version update: what changed, what was reviewed, and d
 7. Lab page responsiveness — 3-column layout may need collapse points for iPad
 8. Bullshit radar history chart — currently snapshot only, no historical trend view
 
-**Deployment:** *(pending — awaiting user confirmation)*
+**Deployment:** *(pending — JWT_SECRET must be set on Render first)*
 
 ---
 
@@ -414,7 +477,8 @@ A running record of every version update: what changed, what was reviewed, and d
 | 9 | `InterestingItem` bs_risk comparison could crash on null | Low | Added `!=null` guard before comparison |
 | 10 | `sync_lifetime_portfolio()` used fallback `peak_equity=100.0` instead of current equity | Medium | Changed fallback to current equity value |
 
-**Deployment:** (pending user approval)
+**Commit:** `d76be65`
+**Deployment:** Mac + Render ✅
 
 ---
 

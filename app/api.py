@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.4 — Observer Core: News Intelligence + Mind Feed + Bullshit Radar",
-    version="7.4.0",
+    description="v7.5 — Observer Core: Crowd Sentiment + Belief vs Reality",
+    version="7.5.0",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -1283,6 +1283,17 @@ def _observer_classify_and_feed():
         mind_feed_engine.on_radar_alert(radar.get("level", "clear"),
                                          radar.get("hype_reason"))
 
+    # v7.5: Crowd sentiment — observe + feed + persist
+    try:
+        import crowd_sentiment_engine
+        crowd_items = crowd_sentiment_engine.generate_feed_items()
+        if crowd_items:
+            mind_feed_engine.on_crowd_sentiment(crowd_items)
+        # Persist snapshot every cycle
+        crowd_sentiment_engine.persist_snapshot()
+    except Exception:
+        pass
+
     return classified, radar, fg
 
 
@@ -1937,6 +1948,85 @@ def get_recurring_patterns(pattern_type: str = Query(default="mistake", regex="^
         }
     except Exception as e:
         return {"error": str(e), "patterns": [], "pattern_type": pattern_type, "total": 0}
+
+
+# ---------------------------------------------------------------------------
+# Crowd Sentiment — Belief vs Reality (v7.5)
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/crowd/latest")
+def get_crowd_latest():
+    """Latest crowd sentiment snapshot."""
+    try:
+        import crowd_sentiment_engine
+        return crowd_sentiment_engine.get_latest()
+    except Exception as e:
+        return {
+            "crowd_bias": "neutral",
+            "crowd_probability": 50.0,
+            "crowd_strength": 0.0,
+            "price_trend": "flat",
+            "price_change_pct": 0.0,
+            "alignment": "unclear",
+            "divergence_score": 0,
+            "insight": "Crowd lens warming up.",
+            "warming_up": True,
+            "error": str(e),
+        }
+
+
+@app.get("/v7/crowd/belief-vs-reality")
+def get_belief_vs_reality():
+    """Belief vs Reality comparison — structured for the frontend panel."""
+    try:
+        import crowd_sentiment_engine
+        return crowd_sentiment_engine.get_belief_vs_reality()
+    except Exception as e:
+        return {
+            "crowd": {"bias": "neutral", "probability": 50.0, "strength": 0.0},
+            "reality": {"price_trend": "flat", "price_change_pct": 0.0, "current_price": 0},
+            "comparison": {
+                "alignment": "unclear",
+                "divergence_score": 0,
+                "reason": "Crowd lens warming up.",
+                "insight": "Not enough belief data yet.",
+            },
+            "warming_up": True,
+            "error": str(e),
+        }
+
+
+@app.get("/v7/crowd/history")
+def get_crowd_history(limit: int = Query(default=30, ge=1, le=100)):
+    """Historical crowd sentiment events."""
+    try:
+        import db as v7db
+        events = v7db.get_crowd_sentiment_events(limit=limit)
+        return {"events": events, "total": len(events)}
+    except Exception as e:
+        return {"events": [], "total": 0, "error": str(e)}
+
+
+@app.get("/v7/crowd/truth")
+def get_crowd_truth():
+    """Evaluate past crowd beliefs — were they right or wrong?"""
+    try:
+        import crowd_sentiment_engine
+        results = crowd_sentiment_engine.evaluate_past_beliefs()
+        correct = sum(1 for r in results if r.get("verdict") == "correct")
+        wrong = sum(1 for r in results if r.get("verdict") == "wrong")
+        total_graded = sum(1 for r in results if r.get("verdict") in ("correct", "wrong"))
+        accuracy = round(correct / max(total_graded, 1) * 100, 1)
+        return {
+            "evaluations": results,
+            "total": len(results),
+            "correct": correct,
+            "wrong": wrong,
+            "accuracy_pct": accuracy,
+            "warming_up": len(results) == 0,
+        }
+    except Exception as e:
+        return {"evaluations": [], "total": 0, "warming_up": True, "error": str(e)}
 
 
 # ---------------------------------------------------------------------------

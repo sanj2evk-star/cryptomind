@@ -44,6 +44,8 @@ TYPES = {
     "market_shift":      {"icon": "◐", "color": "#3b82f6", "label": "Market Shift"},
     "fear_greed":        {"icon": "◑", "color": "#d97706", "label": "Fear & Greed"},
     "narration":         {"icon": "◫", "color": "#8b5cf6", "label": "Narration"},
+    "crowd_divergence":  {"icon": "⬢", "color": "#f59e0b", "label": "Crowd Signal"},
+    "crowd_aligned":     {"icon": "⬡", "color": "#22c55e", "label": "Crowd Signal"},
     "system":            {"icon": "◻", "color": "#6b7280", "label": "System"},
 }
 
@@ -249,6 +251,18 @@ def on_narration(text: str, detail: str = None) -> None:
     """Generic narration from action_narrator."""
     _add("narration", text, detail=detail)
 
+
+def on_crowd_sentiment(feed_items: list[dict]) -> int:
+    """Process crowd sentiment feed items. Returns count added."""
+    added = 0
+    for item in feed_items:
+        ft = item.get("type", "crowd_divergence")
+        msg = item.get("message", "")
+        det = item.get("detail", "")
+        if _add(ft, msg, detail=det):
+            added += 1
+    return added
+
 # ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------
@@ -290,7 +304,7 @@ def persist_important() -> int:
             return 0
         keep_types = {"news_interesting", "news_watch", "mood_change",
                       "radar_alert", "market_shift", "trade_buy", "trade_sell",
-                      "narration"}
+                      "narration", "crowd_divergence", "crowd_aligned"}
         with _lock:
             items = [i for i in _feed if i["type"] in keep_types]
         count = 0

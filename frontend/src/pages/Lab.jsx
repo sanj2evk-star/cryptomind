@@ -322,6 +322,7 @@ export default function Lab() {
   const {data:replayD}       = useApi("/v7/mind/replay", 60000);
   const {data:identityD}     = useApi("/v7/mind/identity", 60000);
   const {data:ltPortfolioD}  = useApi("/v7/lifetime/portfolio", 60000);
+  const {data:crowdD}        = useApi("/v7/crowd/belief-vs-reality", 30000);
 
   const mood        = mindState?.mood || "idle_waiting";
   const moodLabel   = mindState?.mood_label || "Starting up…";
@@ -365,6 +366,10 @@ export default function Lab() {
   const replayTL     = replayD?.timeline || [];
   const identity     = identityD || {};
   const ltPortfolio  = ltPortfolioD || {};
+  const crowd        = crowdD || {};
+  const crowdCrowd   = crowd.crowd || {};
+  const crowdReality = crowd.reality || {};
+  const crowdComp    = crowd.comparison || {};
 
   // Detect warm-up: no mind state data yet, or error
   const isWarmingUp = !mindState || hasError;
@@ -378,7 +383,7 @@ export default function Lab() {
         <h1 style={{margin:0,fontSize:18,fontWeight:700}}>Lab</h1>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
           {isStale && <StaleBadge/>}
-          <span style={{fontSize:10,color:"var(--text-muted)"}}>Observer Core v7.4</span>
+          <span style={{fontSize:10,color:"var(--text-muted)"}}>Observer Core v7.5</span>
         </div>
       </div>
 
@@ -526,6 +531,93 @@ export default function Lab() {
             </>
           )}
         </div>
+      </div>
+
+      {/* ── Belief vs Reality ── */}
+      <div style={{...CARD,borderLeft:`3px solid ${crowdComp.alignment==="aligned"?"#22c55e":crowdComp.alignment==="diverging"?"#f59e0b":"var(--border)"}`}}>
+        <div style={{...LBL,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span>Belief vs Reality</span>
+          {crowd.data_source && <span style={{fontSize:8,color:"var(--text-muted)",fontWeight:400,textTransform:"none"}}>{crowd.data_source}</span>}
+        </div>
+        {crowd.warming_up ? (
+          <WarmUp
+            text="Crowd lens warming up."
+            sub="Not enough belief data yet. Watching for crowd signals."
+          />
+        ) : (
+          <>
+            {/* Main insight */}
+            <div style={{fontSize:13,fontWeight:600,color:"var(--text)",marginBottom:10,lineHeight:1.4}}>
+              "{crowdComp.insight || "Watching for crowd signals."}"
+            </div>
+
+            {/* 4-column stats row */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(110px, 1fr))",gap:10,marginBottom:10}}>
+              {/* Crowd Bias */}
+              <div>
+                <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:2}}>Crowd Bias</div>
+                <div style={{
+                  fontSize:14,fontWeight:700,
+                  color:crowdCrowd.bias==="bullish"?"#22c55e":crowdCrowd.bias==="bearish"?"#ef4444":"#6b7280",
+                }}>{(crowdCrowd.bias||"neutral").charAt(0).toUpperCase()+(crowdCrowd.bias||"neutral").slice(1)}</div>
+              </div>
+              {/* Crowd Confidence */}
+              <div>
+                <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:2}}>Crowd Confidence</div>
+                <div style={{fontSize:14,fontWeight:700,color:"var(--text)"}}>{(crowdCrowd.strength||0).toFixed(0)}%</div>
+              </div>
+              {/* Price Trend */}
+              <div>
+                <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:2}}>Price Trend</div>
+                <div style={{
+                  fontSize:14,fontWeight:700,
+                  color:crowdReality.price_trend==="up"?"#22c55e":crowdReality.price_trend==="down"?"#ef4444":"#6b7280",
+                }}>
+                  {crowdReality.price_trend==="up"?"Up ↑":crowdReality.price_trend==="down"?"Down ↓":"Flat →"}
+                </div>
+              </div>
+              {/* Alignment */}
+              <div>
+                <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:2}}>Alignment</div>
+                <span style={{
+                  display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:700,
+                  background:crowdComp.alignment==="aligned"?"#22c55e18":crowdComp.alignment==="diverging"?"#f59e0b18":"var(--bg)",
+                  color:crowdComp.alignment==="aligned"?"#22c55e":crowdComp.alignment==="diverging"?"#f59e0b":"var(--text-muted)",
+                }}>
+                  {(crowdComp.alignment||"unclear").charAt(0).toUpperCase()+(crowdComp.alignment||"unclear").slice(1)}
+                </span>
+              </div>
+            </div>
+
+            {/* Divergence bar */}
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"var(--text-muted)",marginBottom:2}}>
+                <span>Divergence Score</span>
+                <span style={{
+                  fontWeight:600,
+                  color:(crowdComp.divergence_score||0)>60?"#ef4444":(crowdComp.divergence_score||0)>35?"#f59e0b":"#22c55e",
+                }}>{crowdComp.divergence_score||0}/100</span>
+              </div>
+              <div style={{height:5,background:"var(--border)",borderRadius:3,overflow:"hidden"}}>
+                <div style={{
+                  width:`${crowdComp.divergence_score||0}%`,height:"100%",borderRadius:3,
+                  transition:"width 0.5s ease",
+                  background:(crowdComp.divergence_score||0)>60?"#ef4444":(crowdComp.divergence_score||0)>35?"#f59e0b":"#22c55e",
+                }}/>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:2,fontSize:8,color:"var(--text-muted)"}}>
+                <span>Aligned</span><span>Diverging</span>
+              </div>
+            </div>
+
+            {/* Reason line */}
+            {crowdComp.reason && (
+              <div style={{fontSize:10,color:"var(--text-muted)",marginTop:6,fontStyle:"italic"}}>
+                {crowdComp.reason}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* ── 2-col → stacks on narrow screens ── */}

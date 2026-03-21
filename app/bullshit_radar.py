@@ -162,6 +162,14 @@ def compute() -> dict:
             description = desc
             break
 
+    # Crowd sentiment overlay (observer-only)
+    crowd_sentiment = {}
+    try:
+        import crowd_sentiment_engine
+        crowd_sentiment = crowd_sentiment_engine.compute()
+    except Exception:
+        pass
+
     _state = {
         "noise_ratio":          round(noise_ratio, 3),
         "level":                level,
@@ -182,6 +190,7 @@ def compute() -> dict:
         "unclear_count":        unclear,
         "bullish_count":        bullish,
         "bearish_count":        bearish,
+        "crowd_sentiment":      crowd_sentiment if crowd_sentiment else None,
         "last_updated":         datetime.now(timezone.utc).isoformat(),
     }
     _last_calc = time.time()

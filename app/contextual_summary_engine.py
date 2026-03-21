@@ -309,6 +309,14 @@ def compute(session_id: int = None) -> dict:
     # Posture hint
     posture = _posture_hint(market, trade_sum, news_price)
 
+    # Crowd sentiment overlay (v7.5)
+    crowd_data = {}
+    try:
+        import crowd_sentiment_engine
+        crowd_data = crowd_sentiment_engine.get_belief_vs_reality()
+    except Exception:
+        pass
+
     result = {
         "date": today,
         "session_id": sid,
@@ -316,6 +324,7 @@ def compute(session_id: int = None) -> dict:
         "trades": trade_sum,
         "news_vs_price": news_price,
         "posture": posture,
+        "crowd_vs_reality": crowd_data if crowd_data else None,
         "warming_up": False,
     }
 
