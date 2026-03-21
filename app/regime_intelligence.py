@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import db
 import session_manager
+import discipline_guard
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration — v7.2: minimums sourced from discipline_guard
 # ---------------------------------------------------------------------------
 
-MIN_TRADES_FOR_RECOMMENDATION = 5      # need 5+ trades to form an opinion
+MIN_TRADES_FOR_RECOMMENDATION = discipline_guard.MIN_TRADES_REGIME_REC  # 10 trades
 PREFER_WIN_RATE = 60.0                  # >60% win rate + positive PnL → prefer
 AVOID_WIN_RATE = 35.0                   # <35% win rate OR negative avg PnL → avoid
 STRONG_CONFIDENCE_TRADES = 15           # 15+ trades → high confidence
@@ -71,6 +72,10 @@ def compute_regime_recommendations(session_id: int) -> dict:
     profiles = db.get_regime_profiles(session_id=session_id)
     computed = 0
 
+    # v7.2: Get outcome counts for guard
+    evidence = discipline_guard.get_evidence_counts(session_id)
+    out_count = evidence.get("outcomes", 0)
+
     for p in profiles:
         trades = p.get("total_trades", 0)
         if trades < MIN_TRADES_FOR_RECOMMENDATION:
@@ -86,6 +91,23 @@ def compute_regime_recommendations(session_id: int) -> dict:
             action = "avoid"
         else:
             action = "neutral"
+
+        # v7.2: Ask discipline guard before applying non-neutral recommendations
+        if action != "neutral":
+            guard_result = discipline_guard.can_adapt({
+                "category": "regime",
+                "target": f"regime_rec:{p['regime']}:{p['strategy']}",
+                "current_value": 0.5,
+                "proposed_delta": 0.3 if action == "prefer" else -0.3,
+                "current_cycle": 0,  # regime recs don't use cycle cooldown
+                "session_id": session_id,
+                "trigger_reason": f"regime_performance:{action}",
+                "evidence_count": trades,
+                "outcome_count": out_count,
+                "regime": p["regime"],
+            })
+            if not guard_result["allowed"]:
+                action = "neutral"  # blocked → stay neutral
 
         # Confidence based on observation count
         if trades >= STRONG_CONFIDENCE_TRADES:

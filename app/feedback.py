@@ -1,21 +1,23 @@
 """
-feedback.py — CryptoMind v7.1 Feedback Loop + Behavior Adaptation Engine.
+feedback.py — CryptoMind v7.2 Feedback Loop + Behavior Adaptation Engine.
 
 Periodic self-review system that:
 1. Inspects recent trades, blocked trades, strategy outcomes
 2. Detects patterns (overtrading, undertrading, missed moves)
 3. v7.1: Uses regime intelligence + behavior state + missed opportunity data
-4. Generates adaptation candidates
-5. Applies bounded parameter adjustments to behavior profile
+4. v7.2: ALL adaptations go through discipline_guard.can_adapt()
+5. Generates adaptation candidates
+6. Applies bounded parameter adjustments to behavior profile
 
 Runs every REVIEW_INTERVAL_CYCLES (50 cycles ≈ 25 min at 30s intervals).
 
-RULES:
-- All adaptations are bounded (±10-15% from defaults)
-- Minimum observation count before any adaptation fires
-- Every adaptation is logged and later validated
-- Adaptations are reversible
-- v7.1: No impulsive adaptation — evidence-based only
+v7.2 RULES:
+- All adaptations go through central discipline guard
+- Minimum 50 observations + 20 evaluated outcomes before ANY adaptation
+- 150 cycle cooldown between behavior adaptations
+- Small step only: ±0.02 max per adaptation
+- Stability check prevents conflicting/stacking changes
+- Full audit trail of every attempt (allowed or blocked)
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from datetime import datetime, timezone
 import db
 import session_manager
 import memory_engine
+import discipline_guard
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -32,32 +35,17 @@ import memory_engine
 
 REVIEW_INTERVAL_CYCLES = 50          # review every 50 cycles
 MIN_TRADES_FOR_REVIEW = 3            # need at least 3 trades to have data
-MIN_OBSERVATIONS_FOR_ADAPT = 50      # need 50+ cycles of evidence
-ADAPTATION_COOLDOWN_CYCLES = 100     # min cycles between adaptations of same type
 
-# Bounded parameter ranges (min, default, max)
-PARAM_BOUNDS = {
-    "aggressiveness":       (0.2, 0.5, 0.8),
-    "patience":             (0.2, 0.5, 0.8),
-    "probe_bias":           (0.2, 0.5, 0.8),
-    "trend_follow_bias":    (0.3, 0.5, 0.7),
-    "mean_revert_bias":     (0.3, 0.5, 0.7),
-    "conviction_threshold": (0.3, 0.5, 0.7),
-    "overtrade_penalty":    (0.2, 0.5, 0.8),
-    "hold_extension_bias":  (0.3, 0.5, 0.7),
-    "exit_tightness":       (0.3, 0.5, 0.7),
-    "noise_tolerance":      (0.3, 0.5, 0.7),
-}
-
-# Step size for each adaptation (bounded)
-ADAPT_STEP = 0.03  # ±3% per adaptation
+# v7.2: All bounds/steps/cooldowns are now in discipline_guard.py (single source of truth)
+# These remain for backward compatibility but are NOT used for enforcement.
+PARAM_BOUNDS = discipline_guard.PARAM_FLOORS_CEILINGS
+ADAPT_STEP = 0.02  # v7.2: reduced from 0.03 → 0.02 (enforced by discipline_guard.MAX_DELTA)
 
 # ---------------------------------------------------------------------------
 # Module state
 # ---------------------------------------------------------------------------
 
 _last_review_cycle = 0
-_last_adaptation_types: dict[str, int] = {}  # type → last cycle adapted
 
 
 # ---------------------------------------------------------------------------
@@ -211,15 +199,27 @@ def _generate_review(trades: list[dict], strategy_states: dict,
 
 def _generate_adaptations(review: dict, cycle_number: int,
                           session_id: int) -> list[dict]:
-    """Generate and apply bounded behavior adaptations based on review findings."""
+    """Generate and apply bounded behavior adaptations.
+
+    v7.2: ALL adaptations go through discipline_guard.can_adapt().
+    Nothing is applied without passing the central guard.
+    """
     adaptations = []
     issues = review.get("issues", [])
     profile = db.get_active_profile(session_id)
     if not profile:
         return []
 
+    # Get evidence counts for guard
+    evidence = discipline_guard.get_evidence_counts(session_id)
+    obs_count = evidence.get("observations", 0)
+    out_count = evidence.get("outcomes", 0)
+
+    # Get current regime for stability check
+    system = db.get_system_state()
+    current_regime = system.get("current_regime", "SLEEPING") if system else "SLEEPING"
+
     # --- v7.1: Intelligence-driven issue detection ---
-    # Check behavior state for prolonged punishing market
     try:
         bstate = db.get_behavior_state(session_id)
         if bstate and bstate.get("market_reward_state") == "punishing_aggression":
@@ -228,159 +228,116 @@ def _generate_adaptations(review: dict, cycle_number: int,
     except Exception:
         pass
 
-    # Check missed opportunities for chronic blocks
     try:
-        import memory_engine
         chronic = memory_engine.get_chronic_blocks(min_misses=5)
         if chronic and "opportunity_sensitivity" not in issues:
             issues.append("opportunity_sensitivity")
     except Exception:
         pass
 
-    # Process v7.1 issues
-    for issue in [i for i in issues if i in ("defensive_adaptation", "opportunity_sensitivity")]:
-        last = _last_adaptation_types.get(issue, 0)
-        if cycle_number - last < ADAPTATION_COOLDOWN_CYCLES:
+    # --- Map issues to proposed adaptations ---
+    ISSUE_MAP = {
+        "overtrading": {
+            "param": "overtrade_penalty", "delta": ADAPT_STEP,
+            "trigger": "overtrading_detected",
+            "reason": review.get("summary", {}).get("what_failed", "High trade frequency"),
+            "effect": "Reduce trade frequency, increase conviction requirement",
+        },
+        "probes_failing": {
+            "param": "probe_bias", "delta": -ADAPT_STEP,
+            "trigger": "probe_failure_pattern",
+            "reason": "Probes failing at high rate",
+            "effect": "Reduce probe frequency, require stronger conditions",
+        },
+        "low_win_rate": {
+            "param": "conviction_threshold", "delta": ADAPT_STEP,
+            "trigger": "low_win_rate",
+            "reason": "Win rate below acceptable threshold",
+            "effect": "Require higher conviction before entry",
+        },
+        "undertrading": {
+            "param": "patience", "delta": -ADAPT_STEP,
+            "trigger": "undertrading_detected",
+            "reason": "System too passive, missing opportunities",
+            "effect": "Slightly reduce patience to allow more entries",
+        },
+        "defensive_adaptation": {
+            "param": "patience", "delta": ADAPT_STEP,
+            "trigger": "defensive_market_response",
+            "reason": "Market punishing aggression — increase patience",
+            "effect": "Wait for stronger signals, reduce false entries",
+        },
+        "opportunity_sensitivity": {
+            "param": "conviction_threshold", "delta": -ADAPT_STEP,
+            "trigger": "chronic_missed_opportunities",
+            "reason": "Chronically blocking profitable trades",
+            "effect": "Allow more entries when blocked trades would have succeeded",
+        },
+    }
+
+    for issue in issues:
+        mapping = ISSUE_MAP.get(issue)
+        if not mapping:
             continue
 
-        adaptation = None
+        param = mapping["param"]
+        old_val = profile.get(param, 0.5)
 
-        if issue == "defensive_adaptation":
-            old_val = profile.get("patience", 0.5)
-            new_val = _bounded_adjust(old_val, ADAPT_STEP, "patience")
-            if new_val != old_val:
-                adaptation = {
-                    "trigger_type": "defensive_market_response",
-                    "old_behavior": f"patience={old_val:.3f}",
-                    "new_behavior": f"patience={new_val:.3f}",
-                    "reason": "Market punishing aggression — increase patience",
-                    "expected_effect": "Wait for stronger signals, reduce false entries",
-                    "param": "patience",
-                    "new_value": new_val,
-                }
+        # ── v7.2: ASK THE DISCIPLINE GUARD ──
+        guard_result = discipline_guard.can_adapt({
+            "category": "behavior",
+            "target": param,
+            "current_value": old_val,
+            "proposed_delta": mapping["delta"],
+            "current_cycle": cycle_number,
+            "session_id": session_id,
+            "trigger_reason": mapping["trigger"],
+            "evidence_count": obs_count,
+            "outcome_count": out_count,
+            "regime": current_regime,
+        })
 
-        elif issue == "opportunity_sensitivity":
-            old_val = profile.get("conviction_threshold", 0.5)
-            new_val = _bounded_adjust(old_val, -ADAPT_STEP, "conviction_threshold")
-            if new_val != old_val:
-                adaptation = {
-                    "trigger_type": "chronic_missed_opportunities",
-                    "old_behavior": f"conviction_threshold={old_val:.3f}",
-                    "new_behavior": f"conviction_threshold={new_val:.3f}",
-                    "reason": "Chronically blocking profitable trades — lower conviction bar",
-                    "expected_effect": "Allow more entries when blocked trades would have succeeded",
-                    "param": "conviction_threshold",
-                    "new_value": new_val,
-                }
-
-        if adaptation:
-            # Apply the adaptation
-            db.upsert_behavior_profile(session_id, **{adaptation["param"]: adaptation["new_value"]})
-            db.insert_adaptation(
-                session_id=session_id,
-                trigger_type=adaptation["trigger_type"],
-                old_behavior=adaptation["old_behavior"],
-                new_behavior=adaptation["new_behavior"],
-                reason=adaptation["reason"],
-                expected_effect=adaptation["expected_effect"],
-            )
-            _last_adaptation_types[issue] = cycle_number
-            db.upsert_system_state(
-                last_adaptation_at=datetime.now(timezone.utc).isoformat()
-            )
-            adaptations.append(adaptation)
-            print(f"[feedback] v7.1 Adaptation: {adaptation['trigger_type']} → "
-                  f"{adaptation['old_behavior']} → {adaptation['new_behavior']}")
-
-    for issue in [i for i in issues if i not in ("defensive_adaptation", "opportunity_sensitivity")]:
-        # Check cooldown
-        last = _last_adaptation_types.get(issue, 0)
-        if cycle_number - last < ADAPTATION_COOLDOWN_CYCLES:
+        if not guard_result["allowed"]:
+            # Blocked — already logged by discipline_guard
             continue
 
-        adaptation = None
+        # ── GUARD APPROVED — apply with clamped delta ──
+        new_val = guard_result["final_value"]
 
-        if issue == "overtrading":
-            old_val = profile.get("overtrade_penalty", 0.5)
-            new_val = _bounded_adjust(old_val, ADAPT_STEP, "overtrade_penalty")
-            if new_val != old_val:
-                adaptation = {
-                    "trigger_type": "overtrading_detected",
-                    "old_behavior": f"overtrade_penalty={old_val:.3f}",
-                    "new_behavior": f"overtrade_penalty={new_val:.3f}",
-                    "reason": review["summary"]["what_failed"],
-                    "expected_effect": "Reduce trade frequency, increase conviction requirement",
-                    "param": "overtrade_penalty",
-                    "new_value": new_val,
-                }
+        adaptation = {
+            "trigger_type": mapping["trigger"],
+            "old_behavior": f"{param}={old_val:.4f}",
+            "new_behavior": f"{param}={new_val:.4f}",
+            "reason": mapping["reason"],
+            "expected_effect": mapping["effect"],
+            "param": param,
+            "new_value": new_val,
+        }
 
-        elif issue == "probes_failing":
-            old_val = profile.get("probe_bias", 0.5)
-            new_val = _bounded_adjust(old_val, -ADAPT_STEP, "probe_bias")
-            if new_val != old_val:
-                adaptation = {
-                    "trigger_type": "probe_failure_pattern",
-                    "old_behavior": f"probe_bias={old_val:.3f}",
-                    "new_behavior": f"probe_bias={new_val:.3f}",
-                    "reason": "Probes failing at high rate",
-                    "expected_effect": "Reduce probe frequency, require stronger conditions",
-                    "param": "probe_bias",
-                    "new_value": new_val,
-                }
+        # Apply
+        db.upsert_behavior_profile(session_id, **{param: new_val})
 
-        elif issue == "low_win_rate":
-            old_val = profile.get("conviction_threshold", 0.5)
-            new_val = _bounded_adjust(old_val, ADAPT_STEP, "conviction_threshold")
-            if new_val != old_val:
-                adaptation = {
-                    "trigger_type": "low_win_rate",
-                    "old_behavior": f"conviction_threshold={old_val:.3f}",
-                    "new_behavior": f"conviction_threshold={new_val:.3f}",
-                    "reason": "Win rate below acceptable threshold",
-                    "expected_effect": "Require higher conviction before entry",
-                    "param": "conviction_threshold",
-                    "new_value": new_val,
-                }
+        # Log to v7.0 adaptation_events (backward compat)
+        db.insert_adaptation(
+            session_id=session_id,
+            trigger_type=adaptation["trigger_type"],
+            old_behavior=adaptation["old_behavior"],
+            new_behavior=adaptation["new_behavior"],
+            reason=adaptation["reason"],
+            expected_effect=adaptation["expected_effect"],
+        )
 
-        elif issue == "undertrading":
-            old_val = profile.get("patience", 0.5)
-            new_val = _bounded_adjust(old_val, -ADAPT_STEP, "patience")
-            if new_val != old_val:
-                adaptation = {
-                    "trigger_type": "undertrading_detected",
-                    "old_behavior": f"patience={old_val:.3f}",
-                    "new_behavior": f"patience={new_val:.3f}",
-                    "reason": "System too passive, missing opportunities",
-                    "expected_effect": "Slightly reduce patience to allow more entries",
-                    "param": "patience",
-                    "new_value": new_val,
-                }
+        # Record cooldown in discipline guard
+        discipline_guard.record_adaptation_applied("behavior", cycle_number)
 
-        if adaptation:
-            # Apply the adaptation
-            db.upsert_behavior_profile(session_id, **{adaptation["param"]: adaptation["new_value"]})
+        # Update system state
+        db.upsert_system_state(
+            last_adaptation_at=datetime.now(timezone.utc).isoformat()
+        )
 
-            # Log it
-            db.insert_adaptation(
-                session_id=session_id,
-                trigger_type=adaptation["trigger_type"],
-                old_behavior=adaptation["old_behavior"],
-                new_behavior=adaptation["new_behavior"],
-                reason=adaptation["reason"],
-                expected_effect=adaptation["expected_effect"],
-            )
-
-            # Update cooldown
-            _last_adaptation_types[issue] = cycle_number
-
-            # Update system state
-            db.upsert_system_state(
-                last_adaptation_at=datetime.now(timezone.utc).isoformat()
-            )
-
-            adaptations.append(adaptation)
-            print(f"[feedback] Adaptation: {adaptation['trigger_type']} → "
-                  f"{adaptation['old_behavior']} → {adaptation['new_behavior']}")
+        adaptations.append(adaptation)
+        print(f"[feedback] APPLIED: {adaptation['trigger_type']} → "
+              f"{adaptation['old_behavior']} → {adaptation['new_behavior']}")
 
     return adaptations
 
@@ -413,17 +370,10 @@ def get_feedback_status() -> dict:
         ],
         "behavior_profile": {
             k: round(profile.get(k, 0.5), 3)
-            for k in PARAM_BOUNDS.keys()
+            for k in discipline_guard.PARAM_FLOORS_CEILINGS.keys()
+            if k in (profile or {})
         } if profile else {},
+        "discipline_guard": discipline_guard.get_discipline_status(
+            current_cycle=_last_review_cycle
+        ),
     }
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _bounded_adjust(current: float, delta: float, param_name: str) -> float:
-    """Adjust a parameter within its bounds."""
-    bounds = PARAM_BOUNDS.get(param_name, (0.2, 0.5, 0.8))
-    new_val = current + delta
-    return round(max(bounds[0], min(bounds[2], new_val)), 3)

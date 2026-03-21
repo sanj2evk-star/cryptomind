@@ -246,6 +246,26 @@ CREATE TABLE IF NOT EXISTS adaptation_events (
     FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
 );
 
+-- 8b) adaptation_journal: v7.2 full audit trail (extends adaptation_events)
+CREATE TABLE IF NOT EXISTS adaptation_journal (
+    journal_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id              INTEGER NOT NULL,
+    timestamp               TEXT NOT NULL,
+    category                TEXT NOT NULL DEFAULT '',
+    target                  TEXT NOT NULL DEFAULT '',
+    old_value               REAL NOT NULL DEFAULT 0.0,
+    new_value               REAL NOT NULL DEFAULT 0.0,
+    delta                   REAL NOT NULL DEFAULT 0.0,
+    evidence_count          INTEGER NOT NULL DEFAULT 0,
+    outcome_count           INTEGER NOT NULL DEFAULT 0,
+    weighted_sample_size    REAL NOT NULL DEFAULT 0.0,
+    trigger_reason          TEXT NOT NULL DEFAULT '',
+    allowed_or_blocked      TEXT NOT NULL DEFAULT 'blocked',
+    blocked_reason          TEXT,
+    reversal_candidate      INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
 -- 9) behavior_profile: learned personality parameters
 CREATE TABLE IF NOT EXISTS behavior_profile (
     profile_id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -447,6 +467,9 @@ CREATE INDEX IF NOT EXISTS idx_regime_profiles_lookup ON regime_profiles(regime,
 CREATE INDEX IF NOT EXISTS idx_behavior_states_session ON behavior_states(session_id);
 CREATE INDEX IF NOT EXISTS idx_daily_bias_date ON daily_bias(bias_date);
 CREATE INDEX IF NOT EXISTS idx_daily_bias_active ON daily_bias(active);
+CREATE INDEX IF NOT EXISTS idx_adaptation_journal_session ON adaptation_journal(session_id);
+CREATE INDEX IF NOT EXISTS idx_adaptation_journal_target ON adaptation_journal(target);
+CREATE INDEX IF NOT EXISTS idx_adaptation_journal_status ON adaptation_journal(allowed_or_blocked);
 """
 
 
@@ -885,6 +908,50 @@ def get_recent_adaptations(session_id: int = None, limit: int = 20) -> list[dict
                 "SELECT * FROM adaptation_events ORDER BY adaptation_id DESC LIMIT ?",
                 (limit,)
             ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def insert_adaptation_v72(session_id: int, **kwargs) -> int:
+    """Insert a v7.2 adaptation journal entry. Returns journal_id."""
+    now = kwargs.pop("timestamp", datetime.now(timezone.utc).isoformat())
+    kwargs["session_id"] = session_id
+    kwargs["timestamp"] = now
+    # Remove keys not in table
+    allowed_keys = {
+        "session_id", "timestamp", "category", "target", "old_value", "new_value",
+        "delta", "evidence_count", "outcome_count", "weighted_sample_size",
+        "trigger_reason", "allowed_or_blocked", "blocked_reason", "reversal_candidate",
+    }
+    filtered = {k: v for k, v in kwargs.items() if k in allowed_keys}
+    if "reversal_candidate" in filtered and isinstance(filtered["reversal_candidate"], bool):
+        filtered["reversal_candidate"] = 1 if filtered["reversal_candidate"] else 0
+    with get_db() as conn:
+        cols = ", ".join(filtered.keys())
+        placeholders = ", ".join("?" for _ in filtered)
+        cursor = conn.execute(
+            f"INSERT INTO adaptation_journal ({cols}) VALUES ({placeholders})",
+            list(filtered.values())
+        )
+        return cursor.lastrowid
+
+
+def get_adaptation_journal(session_id: int = None, limit: int = 20,
+                           status_filter: str = None) -> list[dict]:
+    """Get adaptation journal entries."""
+    with get_db() as conn:
+        where_parts = []
+        params = []
+        if session_id:
+            where_parts.append("session_id = ?")
+            params.append(session_id)
+        if status_filter:
+            where_parts.append("allowed_or_blocked = ?")
+            params.append(status_filter)
+        where = " WHERE " + " AND ".join(where_parts) if where_parts else ""
+        rows = conn.execute(
+            f"SELECT * FROM adaptation_journal{where} ORDER BY journal_id DESC LIMIT ?",
+            params + [limit]
+        ).fetchall()
         return rows_to_dicts(rows)
 
 

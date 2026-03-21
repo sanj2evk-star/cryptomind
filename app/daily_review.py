@@ -169,28 +169,54 @@ def generate_review(review_date: str = None) -> dict:
         last_daily_review_at=datetime.now(timezone.utc).isoformat()
     )
 
-    # --- v7.1: Generate structured daily bias ---
-    bias_data = _generate_structured_bias(
-        net_pnl=net_pnl, wins=len(wins), losses=len(losses),
-        strat_pnl=strat_pnl, regime_counts=regime_counts,
-        strongest_regime=strongest_regime,
-        probe_trades=probe_trades, sells=sells,
-    )
+    # --- v7.2: Generate structured daily bias WITH discipline guard ---
     try:
-        # Expire old biases
-        db.expire_old_biases(session_id)
-        # Insert new bias
-        from datetime import timedelta
-        tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
-        bias_id = db.insert_daily_bias(
-            session_id=session_id,
-            review_id=review_id,
-            bias_date=tomorrow,
-            **bias_data,
+        import discipline_guard
+        bias_status = discipline_guard.get_daily_bias_status(
+            trade_count=len(today_trades), session_id=session_id
         )
-        print(f"[daily_review] Generated daily bias #{bias_id} for {tomorrow}")
-    except Exception as e:
-        print(f"[daily_review] Bias generation error: {e}")
+    except Exception:
+        bias_status = {"action": "applied", "trade_count": len(today_trades)}
+
+    bias_action = bias_status.get("action", "applied")
+
+    if bias_action == "applied":
+        # Sufficient data — generate new bias
+        bias_data = _generate_structured_bias(
+            net_pnl=net_pnl, wins=len(wins), losses=len(losses),
+            strat_pnl=strat_pnl, regime_counts=regime_counts,
+            strongest_regime=strongest_regime,
+            probe_trades=probe_trades, sells=sells,
+        )
+        try:
+            db.expire_old_biases(session_id)
+            from datetime import timedelta
+            tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+            bias_id = db.insert_daily_bias(
+                session_id=session_id,
+                review_id=review_id,
+                bias_date=tomorrow,
+                **bias_data,
+            )
+            discipline_guard.record_adaptation_applied("daily_bias", 0)
+            print(f"[daily_review] Generated daily bias #{bias_id} for {tomorrow} (status: applied)")
+        except Exception as e:
+            print(f"[daily_review] Bias generation error: {e}")
+
+    elif bias_action == "carried_forward":
+        print(f"[daily_review] Daily bias CARRIED FORWARD: {bias_status.get('reason', '')}")
+        bias_data = {"daily_bias_status": "carried_forward", "reason": bias_status.get("reason", "")}
+
+    elif bias_action == "insufficient_data":
+        print(f"[daily_review] Daily bias SKIPPED: {bias_status.get('reason', '')}")
+        bias_data = {"daily_bias_status": "insufficient_data", "reason": bias_status.get("reason", "")}
+
+    elif bias_action == "blocked_by_cooldown":
+        print(f"[daily_review] Daily bias BLOCKED: {bias_status.get('reason', '')}")
+        bias_data = {"daily_bias_status": "blocked_by_cooldown", "reason": bias_status.get("reason", "")}
+
+    else:
+        bias_data = {"daily_bias_status": "unknown"}
 
     print(f"[daily_review] Generated review #{review_id} for {review_date}: "
           f"{len(today_trades)} trades, PnL ${net_pnl:.6f}")

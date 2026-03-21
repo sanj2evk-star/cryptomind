@@ -51,7 +51,7 @@ import auto_trader
 app = FastAPI(
     title="CryptoMind API",
     description="v7 — Memory + Reflection + Self-Evolving Core",
-    version="7.1.0",
+    version="7.2.0",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -1075,22 +1075,58 @@ def get_daily_bias():
 
 @app.get("/v7/thinking-status")
 def get_thinking_status():
-    """Combined v7.1 intelligence dashboard summary."""
+    """Combined v7.1+ intelligence dashboard summary."""
     try:
         import outcome_engine
         import regime_intelligence
         import behavior_intelligence
         import daily_review
+        import discipline_guard
         import db as v7db
 
         return {
-            "version": "7.1.0",
+            "version": "7.2.0",
             "outcomes": outcome_engine.get_outcome_summary(),
             "missed_opportunities": v7db.get_missed_opportunity_summary(),
             "regime_intelligence": regime_intelligence.get_regime_intelligence_summary(),
             "behavior_state": behavior_intelligence.get_behavior_state_summary(),
             "daily_bias": daily_review.get_active_bias_summary(),
+            "discipline": discipline_guard.get_discipline_status(),
         }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# v7.2 Discipline Guard Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/discipline")
+def get_discipline():
+    """Full discipline guard state — minimums, cooldowns, recent events."""
+    try:
+        import discipline_guard
+        import auto_trader
+        cycle = auto_trader._state.get("cycle_count", 0)
+        return discipline_guard.get_discipline_status(current_cycle=cycle)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v7/adaptation-journal")
+def get_adaptation_journal(
+    limit: int = Query(default=20, ge=1, le=100),
+    status: str = Query(default=None),
+):
+    """Adaptation journal — full audit trail of every adaptation attempt."""
+    try:
+        import db as v7db
+        import session_manager
+        sid = session_manager.get_session_id()
+        entries = v7db.get_adaptation_journal(
+            session_id=sid, limit=limit, status_filter=status
+        )
+        return {"entries": entries, "total": len(entries)}
     except Exception as e:
         return {"error": str(e)}
 

@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 
 import db
 import session_manager
+import discipline_guard
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -146,6 +147,9 @@ def update_behavior_state(session_id: int, current_cycle: int) -> dict:
     trades, _ = db.get_trades(session_id=session_id, limit=LOOKBACK_TRADES)
     sells = [t for t in trades if t.get("action") == "SELL"]
 
+    # v7.2: Apply recency weights to trades
+    sells = discipline_guard.apply_recency_weights(sells, current_cycle)
+
     if len(sells) < MIN_TRADES_FOR_STATE:
         # Not enough data — stay in learning mode
         state = {
@@ -167,11 +171,13 @@ def update_behavior_state(session_id: int, current_cycle: int) -> dict:
             print(f"[behavior_intel] DB error: {e}")
         return state
 
-    # --- Compute market reward state ---
-    wins = sum(1 for t in sells if (t.get("pnl") or 0) > 0)
+    # --- Compute market reward state (v7.2: recency-weighted) ---
+    weighted_wins = sum(t.get("recency_weight", 1.0) for t in sells if (t.get("pnl") or 0) > 0)
+    weighted_total = sum(t.get("recency_weight", 1.0) for t in sells)
     total = len(sells)
-    win_rate = wins / total if total > 0 else 0.5
-    avg_pnl = sum(t.get("pnl", 0) for t in sells) / total if total > 0 else 0
+    win_rate = weighted_wins / weighted_total if weighted_total > 0 else 0.5
+    weighted_pnl = sum(t.get("pnl", 0) * t.get("recency_weight", 1.0) for t in sells)
+    avg_pnl = weighted_pnl / weighted_total if weighted_total > 0 else 0
 
     # Check if aggressive entries are being rewarded
     probe_sells = [t for t in sells if "probe" in t.get("entry_type", "")]
@@ -230,11 +236,34 @@ def update_behavior_state(session_id: int, current_cycle: int) -> dict:
 
     # --- Compute modifiers from state pair ---
     key = (market_reward, system_self)
-    modifiers = STATE_MODIFIERS.get(key, _NEUTRAL_MODIFIERS).copy()
+    raw_modifiers = STATE_MODIFIERS.get(key, _NEUTRAL_MODIFIERS).copy()
 
-    # Bound all modifiers
-    for param, (lo, hi) in MODIFIER_BOUNDS.items():
-        modifiers[param] = round(max(lo, min(hi, modifiers.get(param, 0))), 3)
+    # v7.2: Run each modifier through discipline guard
+    evidence = discipline_guard.get_evidence_counts(session_id)
+    obs_count = evidence.get("observations", 0)
+    out_count = evidence.get("outcomes", 0)
+
+    modifiers = {}
+    for param, proposed in raw_modifiers.items():
+        current = 0.0  # modifiers always start from 0
+        guard_result = discipline_guard.can_adapt({
+            "category": "modifier",
+            "target": param,
+            "current_value": current,
+            "proposed_delta": proposed,
+            "current_cycle": current_cycle,
+            "session_id": session_id,
+            "trigger_reason": f"behavior_state:{market_reward}/{system_self}",
+            "evidence_count": obs_count,
+            "outcome_count": out_count,
+            "regime": "",
+        })
+
+        if guard_result["allowed"]:
+            modifiers[param] = guard_result["final_value"]
+            discipline_guard.record_adaptation_applied("modifier", current_cycle)
+        else:
+            modifiers[param] = 0.0  # blocked → stay neutral
 
     _cached_modifiers = modifiers
 
