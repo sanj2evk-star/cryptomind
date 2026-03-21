@@ -202,6 +202,7 @@ export default function Trades() {
 
   // Summary
   const { data: summary } = useApi("/auto/trades/summary", 30000);
+  const { data: sysAge } = useApi("/v7/system-age", 30000);
 
   // Fetch trades
   const fetchTrades = useCallback(async (reset = false) => {
@@ -303,6 +304,26 @@ export default function Trades() {
           <button onClick={() => setDebugMode(!debugMode)} style={toggleBtn(debugMode)}>🧠 Debug</button>
         </div>
       </div>
+
+      {/* v7: Session strip */}
+      {sysAge && (
+        <div style={{
+          display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+          padding: "5px 10px", marginBottom: 6,
+          background: "var(--surface)", border: "1px solid var(--border)",
+          borderRadius: 6, fontSize: 10,
+        }}>
+          <span style={{ color: "var(--blue)", fontWeight: 700 }}>
+            v{sysAge.current_session_version || "7"} Session #{sysAge.current_session_id || "—"}
+          </span>
+          <span style={{ color: "var(--text-muted)" }}>
+            Lifetime: <b style={{ color: "var(--text)" }}>{(sysAge.total_lifetime_trades || 0)} trades</b>
+          </span>
+          <span style={{ color: "var(--text-muted)" }}>
+            {(sysAge.system_age_cycles || 0).toLocaleString()} cycles
+          </span>
+        </div>
+      )}
 
       {/* Session Summary */}
       <SessionSummary summary={summary} />

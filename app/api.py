@@ -49,9 +49,9 @@ import auto_trader
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="BTC Paper Trader API",
-    description="Multi-user REST API for the paper trading system.",
-    version="2.0.0",
+    title="CryptoMind API",
+    description="v7 — Memory + Reflection + Self-Evolving Core",
+    version="7.0.0",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -88,14 +88,26 @@ def health():
 
 @app.on_event("startup")
 def startup():
-    """Ensure default admin user exists and start trading on every wake-up.
+    """Boot CryptoMind v7 — persistence, sessions, trading.
 
-    Render free tier sleeps after 15 min of inactivity. On wake, this
-    runs again — the auto-trader restarts cleanly from where it left off.
+    1. Initialize v7 persistence layer (DB, sessions, migration)
+    2. Ensure admin user exists
+    3. Start autonomous trading loop
     """
     from datetime import datetime, timezone
     boot_time = datetime.now(timezone.utc).isoformat()
-    print(f"[api] ===== CryptoMind starting at {boot_time} =====")
+    print(f"[api] ===== CryptoMind v7 starting at {boot_time} =====")
+
+    # v7: Initialize persistence layer FIRST
+    try:
+        import session_manager
+        v7_result = session_manager.initialize()
+        print(f"[api] v7 session: {v7_result.get('action', '?')} "
+              f"(session #{v7_result.get('session_id', '?')})")
+        if v7_result.get("migrated_trades"):
+            print(f"[api] Migrated {v7_result['migrated_trades']} historical trades to SQLite")
+    except Exception as e:
+        print(f"[api] v7 init error (non-fatal): {e}")
 
     ensure_admin()
     result = seed_user("admin")
@@ -107,7 +119,7 @@ def startup():
     # Auto-start the trading loop (safe to call after sleep — restarts cleanly)
     auto_result = auto_trader.start("admin")
     print(f"[api] Auto-trader: {auto_result['status']} (every {auto_result.get('interval', 30)}s)")
-    print(f"[api] Dashboard ready. Trading loop active.")
+    print(f"[api] CryptoMind v7 ready. Memory + Reflection active.")
 
 
 # ---------------------------------------------------------------------------
@@ -781,6 +793,232 @@ def get_journal_summary(user_id: str = Depends(get_user_id)):
 
 
 # ---------------------------------------------------------------------------
+# v7: System Age, Sessions, Memory, Feedback, Reviews
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/system-age")
+def get_system_age():
+    """System age and session info. The heartbeat of v7."""
+    try:
+        import session_manager
+        return session_manager.get_system_age()
+    except Exception as e:
+        return {"error": str(e), "system_age_cycles": 0}
+
+
+@app.get("/v7/sessions")
+def get_sessions():
+    """All version sessions (current + archived)."""
+    try:
+        import session_manager
+        sessions = session_manager.get_session_archive()
+        current = session_manager.get_session_id()
+        return {"sessions": sessions, "current_session_id": current}
+    except Exception as e:
+        return {"sessions": [], "error": str(e)}
+
+
+@app.get("/v7/memory")
+def get_memory_status():
+    """Experience memory summary."""
+    try:
+        import memory_engine
+        return memory_engine.get_memory_summary()
+    except Exception as e:
+        return {"total_memories": 0, "error": str(e)}
+
+
+@app.get("/v7/memories")
+def get_memories(
+    memory_type: str = Query(default=""),
+    strategy: str = Query(default=""),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Get active experience memories with optional filters."""
+    try:
+        import db as v7db
+        import session_manager
+        kwargs = {"limit": limit}
+        if memory_type:
+            kwargs["memory_type"] = memory_type
+        if strategy:
+            kwargs["strategy"] = strategy
+        memories = v7db.get_active_memories(**kwargs)
+        return {"count": len(memories), "memories": memories}
+    except Exception as e:
+        return {"count": 0, "memories": [], "error": str(e)}
+
+
+@app.get("/v7/feedback")
+def get_feedback_status():
+    """Feedback loop and adaptation status."""
+    try:
+        import feedback as feedback_engine
+        return feedback_engine.get_feedback_status()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v7/adaptations")
+def get_adaptations(limit: int = Query(default=20, ge=1, le=100)):
+    """Recent behavior adaptations."""
+    try:
+        import db as v7db
+        import session_manager
+        sid = session_manager.get_session_id()
+        adaptations = v7db.get_recent_adaptations(session_id=sid, limit=limit)
+        return {"count": len(adaptations), "adaptations": adaptations}
+    except Exception as e:
+        return {"count": 0, "adaptations": [], "error": str(e)}
+
+
+@app.get("/v7/behavior-profile")
+def get_behavior_profile():
+    """Current learned behavior profile."""
+    try:
+        import db as v7db
+        import session_manager
+        sid = session_manager.get_session_id()
+        profile = v7db.get_active_profile(sid) if sid else None
+        return {"profile": profile or {}}
+    except Exception as e:
+        return {"profile": {}, "error": str(e)}
+
+
+@app.get("/v7/daily-review")
+def get_latest_review():
+    """Latest daily review."""
+    try:
+        import daily_review
+        review = daily_review.get_latest_review()
+        return {"review": review}
+    except Exception as e:
+        return {"review": None, "error": str(e)}
+
+
+@app.get("/v7/daily-reviews")
+def get_review_history(limit: int = Query(default=10, ge=1, le=50)):
+    """Daily review history."""
+    try:
+        import daily_review
+        reviews = daily_review.get_review_history(limit=limit)
+        return {"count": len(reviews), "reviews": reviews}
+    except Exception as e:
+        return {"count": 0, "reviews": [], "error": str(e)}
+
+
+@app.post("/v7/daily-review/generate")
+def generate_review_now():
+    """Generate a daily review on demand."""
+    try:
+        import daily_review
+        review = daily_review.generate_review()
+        return review
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v7/strategy-patterns/{name}")
+def get_strategy_patterns(name: str):
+    """Analyze patterns for a specific strategy."""
+    try:
+        import memory_engine
+        return memory_engine.analyze_strategy_patterns(name.upper())
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v7/trades")
+def get_v7_trades(
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session_id: int = Query(default=0),
+    action: str = Query(default=""),
+    strategy: str = Query(default=""),
+    regime: str = Query(default=""),
+    entry_type: str = Query(default=""),
+):
+    """Get trades from the SQLite trade ledger with filters."""
+    try:
+        import db as v7db
+        import session_manager
+        sid = session_id if session_id > 0 else None
+        trades, total = v7db.get_trades(
+            session_id=sid, limit=limit, offset=offset,
+            action=action or None, strategy=strategy or None,
+            regime=regime or None, entry_type=entry_type or None,
+        )
+        return {
+            "count": len(trades), "total": total,
+            "offset": offset, "limit": limit,
+            "has_more": (offset + limit) < total,
+            "trades": trades,
+        }
+    except Exception as e:
+        return {"count": 0, "total": 0, "trades": [], "error": str(e)}
+
+
+@app.get("/v7/trade-summary")
+def get_v7_trade_summary(session_id: int = Query(default=0)):
+    """Trade summary from SQLite ledger."""
+    try:
+        import db as v7db
+        sid = session_id if session_id > 0 else None
+        return v7db.get_trade_summary(session_id=sid)
+    except Exception as e:
+        return {"total": 0, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Enhanced debug state with v7 fields
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/debug")
+def debug_v7():
+    """Full v7 debug state."""
+    try:
+        import session_manager
+        import memory_engine
+        import feedback as feedback_engine
+        import db as v7db
+
+        sid = session_manager.get_session_id()
+        system = v7db.get_system_state()
+        profile = v7db.get_active_profile(sid) if sid else None
+        recent_memories = v7db.get_active_memories(limit=5)
+        recent_adaptations = v7db.get_recent_adaptations(limit=5)
+        latest_review = v7db.get_latest_review()
+
+        return {
+            "current_session_id": sid,
+            "current_version": session_manager.APP_VERSION,
+            "session_age_cycles": system.get("system_age_cycles", 0) if system else 0,
+            "system_age_cycles": system.get("total_lifetime_cycles", 0) if system else 0,
+            "total_lifetime_trades": system.get("total_lifetime_trades", 0) if system else 0,
+            "active_behavior_profile": {
+                k: round(profile.get(k, 0.5), 3)
+                for k in ("aggressiveness", "patience", "probe_bias",
+                          "trend_follow_bias", "conviction_threshold",
+                          "overtrade_penalty", "noise_tolerance")
+            } if profile else {},
+            "latest_memory_items": [
+                {"type": m.get("memory_type"), "lesson": m.get("lesson_text", "")[:80],
+                 "times": m.get("times_observed", 0)}
+                for m in recent_memories
+            ],
+            "latest_adaptations": [
+                {"trigger": a.get("trigger_type"), "change": a.get("new_behavior", ""),
+                 "status": a.get("validation_status", "pending")}
+                for a in recent_adaptations
+            ],
+            "pending_daily_review": latest_review.get("review_date", "none") if latest_review else "none",
+            "current_feedback_state": feedback_engine.get_feedback_status(),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
 # Static frontend serving (production desktop app)
 #
 # Serves the built React frontend so the Electron app can load everything
@@ -812,7 +1050,7 @@ if _frontend_dir:
     _index_html = _frontend_dir / "index.html"
 
     # Known SPA routes that collide with API endpoints
-    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard"}
+    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard", "/memory"}
 
     class SPAMiddleware(BaseHTTPMiddleware):
         """Serve index.html for browser navigation to SPA routes.

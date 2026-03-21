@@ -1240,6 +1240,59 @@ def run_cycle(user_id: str = "admin") -> dict:
     _state["last_update"] = datetime.now(timezone.utc).isoformat()
     _state["cycle_count"] += 1
 
+    # --- v7: Persistence hooks ---
+    try:
+        import session_manager
+        import memory_engine
+        import feedback as feedback_engine
+        import daily_review
+
+        # Cycle snapshot + system state update
+        session_manager.on_cycle_complete(
+            cycle_number=_state["cycle_count"],
+            indicators=indicators,
+            decision=decision,
+            portfolio=portfolio,
+            price=price,
+            regime=mkt_regime,
+            dominant_strategy=_get_dominant_strategy(),
+            market_quality=_get_market_quality(),
+            blocked_reason=_get_blocked_reason(),
+        )
+
+        # Log trade to DB (alongside CSV)
+        if result["action"] in ("BUY", "SELL"):
+            session_manager.on_trade_executed(
+                action=result["action"], price=price,
+                qty=result.get("quantity", 0),
+                dollar_size=result.get("quantity", 0) * price,
+                pnl=result.get("pnl", 0),
+                strategy="main", regime=mkt_regime,
+                entry_type="full",
+                score=decision.get("score", 0),
+                confidence=decision.get("confidence", 0),
+                reason=decision.get("reasoning", ""),
+            )
+
+        # Evaluate missed moves periodically
+        if _state["cycle_count"] % 10 == 0:
+            memory_engine.evaluate_missed_moves(price, _state["cycle_count"])
+
+        # Feedback loop check
+        feedback_engine.run_feedback_check(
+            cycle_number=_state["cycle_count"],
+            recent_trades=[],
+            strategy_states={},
+            regime=mkt_regime,
+            market_quality=_get_market_quality(),
+        )
+
+        # Daily review check
+        daily_review.check_daily_review()
+
+    except Exception as e:
+        print(f"[v7] Persistence hook error: {e}")
+
     # --- Run multi-strategy simulation ---
     # CRITICAL: When multi_strategy fires a trade, we must:
     #   1. Execute against the REAL portfolio (cash/btc_holdings)
@@ -1287,6 +1340,15 @@ def run_cycle(user_id: str = "admin") -> dict:
                         "reason": reentry_reason,
                         "strategy": trade_strategy,
                     }
+                    # v7: Record blocked trade for missed-move analysis
+                    try:
+                        import memory_engine as me
+                        me.record_blocked_trade(
+                            _state["cycle_count"], price, trade_score,
+                            trade_regime_str, trade_strategy, reentry_reason
+                        )
+                    except Exception:
+                        pass
                 else:
                     # Determine position size
                     if "trend_probe" in trade_entry_type or "exploratory" in str(trade_reasons):
@@ -1377,6 +1439,52 @@ def run_cycle(user_id: str = "admin") -> dict:
                               f"from {trade_strategy}: qty={probe_result['quantity']:.8f} BTC "
                               f"cash={portfolio['cash']:.2f} btc={portfolio['btc_holdings']:.8f}")
 
+                        # ── v7: Log to DB + evaluate memory ──
+                        try:
+                            import session_manager as sm
+                            import memory_engine as me
+
+                            sm.on_trade_executed(
+                                action=trade_action, price=price,
+                                qty=probe_result.get("quantity", 0),
+                                dollar_size=probe_result.get("quantity", 0) * price,
+                                pnl=probe_result.get("pnl", 0),
+                                strategy=trade_strategy, regime=trade_regime_str,
+                                entry_type=trade_entry_type,
+                                score=trade_score,
+                                confidence=best.get("confidence", 0),
+                                reason=trade_reason_str,
+                                market_quality=_get_market_quality(),
+                            )
+
+                            # After SELL: evaluate the trade pair for memory
+                            if trade_action == "SELL" and probe_result.get("pnl", 0) != 0:
+                                inds = _state.get("indicators", {})
+                                me.evaluate_completed_trade(
+                                    buy_context={
+                                        "price": portfolio.get("avg_entry_price", price),
+                                        "score": trade_score,
+                                        "confidence": best.get("confidence", 0),
+                                        "regime": trade_regime_str,
+                                        "strategy": trade_strategy,
+                                        "entry_type": trade_entry_type,
+                                        "rsi": inds.get("rsi", 50),
+                                        "accel": inds.get("acceleration", 0),
+                                        "trend": inds.get("trend", "sideways"),
+                                    },
+                                    sell_context={
+                                        "price": price,
+                                        "pnl": probe_result.get("pnl", 0),
+                                        "score": trade_score,
+                                        "regime": trade_regime_str,
+                                        "rsi": inds.get("rsi", 50),
+                                        "accel": inds.get("acceleration", 0),
+                                        "trend": inds.get("trend", "sideways"),
+                                    },
+                                )
+                        except Exception as v7e:
+                            print(f"[v7] Multi-strategy DB hook error: {v7e}")
+
     except Exception as e:
         import traceback
         print(f"[multi_strategy] Error: {e}")
@@ -1453,6 +1561,33 @@ def _loop(user_id: str) -> None:
             print(f"[auto_trader] Cycle error: {e}")
             _state["error"] = str(e)
         time.sleep(LOOP_INTERVAL)
+
+
+def _get_dominant_strategy() -> str:
+    """Get the current dominant/primary strategy name."""
+    try:
+        import multi_strategy
+        return multi_strategy._primary_strategy
+    except Exception:
+        return "HUNTER"
+
+
+def _get_market_quality() -> int:
+    """Get the current market quality score."""
+    try:
+        import multi_strategy
+        return multi_strategy._market_quality_score
+    except Exception:
+        return 0
+
+
+def _get_blocked_reason() -> str:
+    """Get the current blocked trade reason."""
+    try:
+        import multi_strategy
+        return multi_strategy._blocked_trade_reason
+    except Exception:
+        return ""
 
 
 def start(user_id: str = "admin") -> dict:

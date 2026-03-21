@@ -7,6 +7,7 @@ import Trades from "./pages/Trades";
 import Performance from "./pages/Performance";
 import Journal from "./pages/Journal";
 import Leaderboard from "./pages/Leaderboard";
+import MemoryPage from "./pages/Memory";
 
 // ---------------------------------------------------------------------------
 // Health check states: "checking" | "ok" | "down"
@@ -123,6 +124,7 @@ export default function App() {
     { to: "/performance", icon: "🏆", label: "Performance" },
     { to: "/journal", icon: "📝", label: "Journal" },
     { to: "/leaderboard", icon: "🏅", label: "Leaderboard" },
+    { to: "/memory", icon: "🧠", label: "Memory" },
   ];
 
   // 4. Backend up, logged in → full app
@@ -163,6 +165,7 @@ export default function App() {
           <Route path="/performance" element={<Performance />} />
           <Route path="/journal" element={<Journal />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
+          <Route path="/memory" element={<MemoryPage />} />
         </Routes>
       </main>
     </div>

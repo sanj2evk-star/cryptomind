@@ -1479,6 +1479,30 @@ def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
 
     _leaderboard = _compute_leaderboard(price)
 
+    # ── v7: Persist strategy states to DB ──
+    try:
+        import session_manager
+        import db as v7db
+        sid = session_manager.get_session_id()
+        if sid and _cycle_count % 10 == 0:  # every 10 cycles
+            for name, s in _strategies.items():
+                p = _get_performance(name, price)
+                trust = _compute_strategy_trust(name, price)
+                v7db.upsert_strategy_state(
+                    strategy_name=name, session_id=sid,
+                    trades=p["trade_count"], wins=s["wins"], losses=s["losses"],
+                    return_pct=round(p["total_return"], 2),
+                    pnl=round(s["realized_pnl"], 6),
+                    trust_score=round(trust, 3),
+                    alloc_pct=round(_allocations.get(name, 0), 4),
+                    status=s["status"],
+                    consecutive_losses=s["consecutive_losses"],
+                    drawdown_pct=round(p["drawdown"], 2),
+                    last_reason=s.get("last_reason", ""),
+                )
+    except Exception as e:
+        print(f"[v7] Strategy state persist error: {e}")
+
     return {
         "cycle": _cycle_count, "price": price, "market_state": mkt,
         "leaderboard": _leaderboard, "cycle_trades": list(_cycle_trades),

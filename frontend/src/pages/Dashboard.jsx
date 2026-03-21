@@ -82,6 +82,9 @@ export default function Dashboard() {
   const { data: autoEquity, retry: rEquity } = useApi("/auto/equity?limit=100", 10000);
   const { data: aiPerf } = useApi("/ai-performance", 30000);
   const { data: adaptive } = useApi("/adaptive", 15000);
+  const { data: sysAge } = useApi("/v7/system-age", 10000);
+  const { data: memStatus } = useApi("/v7/memory", 30000);
+  const { data: latestReview } = useApi("/v7/daily-review", 60000);
 
   const { status: sysStatus, lastPing } = useKeepAlive();
   const { enabled: soundEnabled, toggle: toggleSound, checkTrades: checkTradeSound } = useTradeSound();
@@ -305,6 +308,39 @@ export default function Dashboard() {
           color: mktStateName === "BREAKOUT" ? "#ef4444" : mktStateName === "ACTIVE" ? "#22c55e" : mktStateName === "WAKING_UP" ? "#eab308" : "#9ca3af",
         }}>
           <b>Market:</b> {mktStateReason}
+        </div>
+      )}
+
+      {/* ── v7: System Age Strip ── */}
+      {sysAge && (
+        <div style={{
+          display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+          padding: "6px 10px", marginBottom: isTouch ? 5 : 6,
+          background: "var(--surface)", border: "1px solid var(--border)",
+          borderRadius: 6, fontSize: 10,
+        }}>
+          <span style={{ color: "var(--blue)", fontWeight: 700 }}>
+            v{sysAge.current_session_version || "7"}
+          </span>
+          <span style={{ color: "var(--text-muted)" }}>
+            System Age: <b style={{ color: "var(--text)" }}>{(sysAge.system_age_cycles || 0).toLocaleString()} cycles</b>
+          </span>
+          <span style={{ color: "var(--text-muted)" }}>
+            Session: <b style={{ color: "var(--text)" }}>{(sysAge.current_session_hours || 0).toFixed(1)}h</b>
+          </span>
+          <span style={{ color: "var(--text-muted)" }}>
+            Lifetime Trades: <b style={{ color: "var(--text)" }}>{sysAge.total_lifetime_trades || 0}</b>
+          </span>
+          {memStatus && (memStatus.total_memories || 0) > 0 && (
+            <span style={{ color: "#8b5cf6" }}>
+              Memories: <b>{memStatus.total_memories}</b>
+            </span>
+          )}
+          {latestReview?.review && (
+            <span style={{ color: "var(--text-muted)", fontSize: 9 }}>
+              Last Review: {latestReview.review.review_date || "—"}
+            </span>
+          )}
         </div>
       )}
 

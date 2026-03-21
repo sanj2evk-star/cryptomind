@@ -17,6 +17,9 @@ DATA_DIR = PROJECT_ROOT / "data"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 ENV_PATH = PROJECT_ROOT / ".env"
 
+# -- App version --
+APP_VERSION = "7.0.0"
+
 # -- Trading constants --
 SYMBOL = "BTC/USDT"  # default / legacy single-asset
 SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
