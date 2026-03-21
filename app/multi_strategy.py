@@ -219,6 +219,23 @@ def _check_exposure_allows_buy(price: float, regime: str) -> tuple[bool, str, fl
     exposure = _get_exposure_pct(price)
     _current_exposure_pct = exposure
     cap = EXPOSURE_CAPS.get(regime, 0.75) * 100  # convert to %
+
+    # v7.1: Apply intelligence modifiers to exposure cap
+    try:
+        import behavior_intelligence
+        import session_manager
+        bi_mods = behavior_intelligence.get_behavior_modifiers(session_manager.get_session_id())
+        cap += bi_mods.get("exposure_modifier", 0) * 100  # ±10%
+    except Exception:
+        pass
+    try:
+        import daily_review
+        bias = daily_review.load_active_bias()
+        if bias:
+            cap += bias.get("exposure_cap_adj", 0) * 100
+    except Exception:
+        pass
+
     _exposure_cap_active = f"{regime}:{cap:.0f}%"
 
     # Hard ceiling — block all BUY
@@ -787,6 +804,42 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     hold_zone_adj = {"SLEEPING": 0, "WAKING_UP": -3, "ACTIVE": -5, "BREAKOUT": -7}.get(regime, 0)
     buy_t = base_buy_t + hold_zone_adj        # lower buy threshold in active markets
     sell_t = base_sell_t - hold_zone_adj       # raise sell threshold in active markets
+
+    # ── v7.1: Apply intelligence modifiers ──
+    try:
+        import behavior_intelligence
+        import session_manager as _sm
+        _bi_mods = behavior_intelligence.get_behavior_modifiers(_sm.get_session_id())
+        buy_t += _bi_mods.get("threshold_modifier", 0)
+        sell_t -= _bi_mods.get("threshold_modifier", 0)
+    except Exception:
+        pass
+
+    # v7.1: Regime intelligence — boost/penalize based on historical performance
+    try:
+        import regime_intelligence
+        _rec = regime_intelligence.get_strategy_recommendation(regime, name)
+        if _rec == "prefer":
+            buy_t -= 3    # lower bar for historically strong strategy in this regime
+        elif _rec == "avoid":
+            buy_t += 3    # raise bar for underperformer
+    except Exception:
+        pass
+
+    # v7.1: Daily bias — structured adjustments from yesterday's review
+    try:
+        import daily_review as _dr
+        _bias = _dr.load_active_bias()
+        if _bias:
+            buy_t += _bias.get("buy_threshold_adj", 0)
+            sell_t += _bias.get("sell_threshold_adj", 0)
+            if name in (_bias.get("avoid_strategies") or []):
+                buy_t += 5    # heavily penalize avoided strategies
+            if name in (_bias.get("preferred_strategies") or []):
+                buy_t -= 3    # boost preferred
+    except Exception:
+        pass
+
     confidence = round(min(abs(total_score - (buy_t + sell_t) / 2) / 50, 0.95), 2)
     reasons = []
     entry_met = False  # track if native entry condition was met
@@ -1467,6 +1520,17 @@ def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
                             PROFILES[name][field] += delta
     except Exception:
         pass
+
+    # v7.1: Compute regime intelligence recommendations periodically
+    if _cycle_count % 50 == 0:
+        try:
+            import regime_intelligence
+            import session_manager
+            sid = session_manager.get_session_id()
+            if sid:
+                regime_intelligence.compute_regime_recommendations(sid)
+        except Exception:
+            pass
 
     # Auto-switch + kill/revive
     _check_auto_switch(price)

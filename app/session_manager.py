@@ -22,7 +22,7 @@ from config import DATA_DIR
 # App version — single source of truth
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "7.0.0"
+APP_VERSION = "7.1.0"
 
 # ---------------------------------------------------------------------------
 # Module state
@@ -144,6 +144,12 @@ def initialize() -> dict:
     if not profile:
         db.upsert_behavior_profile(_current_session_id)
         print(f"[session] Created default behavior profile")
+
+    # 5. v7.1: Create default behavior state if none exists
+    bstate = db.get_behavior_state(_current_session_id)
+    if not bstate:
+        db.upsert_behavior_state(_current_session_id, cycle_number=0)
+        print(f"[session] Created default behavior state (v7.1)")
 
     return summary
 

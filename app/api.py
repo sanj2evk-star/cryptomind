@@ -51,7 +51,7 @@ import auto_trader
 app = FastAPI(
     title="CryptoMind API",
     description="v7 — Memory + Reflection + Self-Evolving Core",
-    version="7.0.0",
+    version="7.1.0",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -1013,6 +1013,83 @@ def debug_v7():
             ],
             "pending_daily_review": latest_review.get("review_date", "none") if latest_review else "none",
             "current_feedback_state": feedback_engine.get_feedback_status(),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# v7.1 Intelligence Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/outcomes")
+def get_outcomes():
+    """Delayed outcome evaluation summary."""
+    try:
+        import outcome_engine
+        return outcome_engine.get_outcome_summary()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v7/missed-opportunities")
+def get_missed_opportunities():
+    """Missed opportunity summary by severity/strategy/regime."""
+    try:
+        import db as v7db
+        return v7db.get_missed_opportunity_summary()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v7/regime-intelligence")
+def get_regime_intelligence():
+    """Regime-strategy performance matrix."""
+    try:
+        import regime_intelligence
+        return regime_intelligence.get_regime_intelligence_summary()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v7/behavior-state")
+def get_behavior_state():
+    """Current market_reward_state and system_self_state."""
+    try:
+        import behavior_intelligence
+        return behavior_intelligence.get_behavior_state_summary()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v7/daily-bias")
+def get_daily_bias():
+    """Current active daily bias."""
+    try:
+        import daily_review
+        bias = daily_review.get_active_bias_summary()
+        return bias if bias else {"status": "no_active_bias"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v7/thinking-status")
+def get_thinking_status():
+    """Combined v7.1 intelligence dashboard summary."""
+    try:
+        import outcome_engine
+        import regime_intelligence
+        import behavior_intelligence
+        import daily_review
+        import db as v7db
+
+        return {
+            "version": "7.1.0",
+            "outcomes": outcome_engine.get_outcome_summary(),
+            "missed_opportunities": v7db.get_missed_opportunity_summary(),
+            "regime_intelligence": regime_intelligence.get_regime_intelligence_summary(),
+            "behavior_state": behavior_intelligence.get_behavior_state_summary(),
+            "daily_bias": daily_review.get_active_bias_summary(),
         }
     except Exception as e:
         return {"error": str(e)}

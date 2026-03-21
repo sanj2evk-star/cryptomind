@@ -1,5 +1,5 @@
 """
-memory_engine.py — CryptoMind v7 Experience Memory Engine.
+memory_engine.py — CryptoMind v7.1 Experience Memory Engine.
 
 Rule-based system that creates condensed lessons from trading outcomes.
 NO fake AI. NO black-box learning. Simple, auditable, real.
@@ -11,9 +11,15 @@ Memory types:
 - sleeping_probe_success / sleeping_probe_failure
 - trend_follow_success / trend_follow_failure
 - mean_revert_success / mean_revert_failure
-- missed_move (deferred evaluation)
+- missed_move (deferred evaluation — now DB-backed with multi-checkpoint)
 - churn_detected
 - patience_rewarded
+- delayed_correct / delayed_wrong / delayed_neutral (v7.1 outcome engine)
+- chronic_block (v7.1 — strategy/regime chronically missing opportunities)
+
+v7.1: Missed opportunity tracking is now persistent (SQLite-backed).
+      Multi-checkpoint evaluation at +5 and +20 cycles.
+      Severity classification: minor (<0.3%), moderate (0.3-1%), major (>1%).
 
 Each memory has a pattern_signature (regime + indicators + strategy context)
 that allows the system to recognize recurring situations.
@@ -171,73 +177,158 @@ def evaluate_completed_trade(buy_context: dict, sell_context: dict) -> dict | No
 
 
 # ---------------------------------------------------------------------------
-# Missed move evaluation — deferred check
+# Missed move evaluation — v7.1: DB-backed with multi-checkpoint
 # ---------------------------------------------------------------------------
 
-# Pending evaluations: {cycle_number: {price_at_block, regime, strategy, reason, score}}
-_pending_missed: list[dict] = []
+# Severity thresholds
+MISSED_MINOR_PCT = 0.3      # >0.3% move = minor miss
+MISSED_MODERATE_PCT = 0.5   # >0.5% = moderate
+MISSED_MAJOR_PCT = 1.0      # >1.0% = major
 
 
 def record_blocked_trade(cycle: int, price: float, score: float,
-                         regime: str, strategy: str, reason: str) -> None:
-    """Record a blocked trade for later missed-move evaluation."""
-    _pending_missed.append({
-        "cycle": cycle,
-        "price": price,
-        "score": score,
-        "regime": regime,
-        "strategy": strategy,
-        "reason": reason,
-    })
-    # Keep only last 50
-    if len(_pending_missed) > 50:
-        _pending_missed[:] = _pending_missed[-50:]
+                         regime: str, strategy: str, reason: str) -> int | None:
+    """Record a blocked trade for later missed-move evaluation.
+
+    v7.1: Now persisted to SQLite instead of in-memory list.
+    Returns missed_id.
+    """
+    session_id = session_manager.get_session_id()
+    if not session_id:
+        return None
+
+    try:
+        return db.insert_missed_opportunity(
+            session_id=session_id,
+            cycle_recorded=cycle,
+            price_at_record=price,
+            score_at_record=score,
+            regime=regime,
+            strategy=strategy,
+            block_reason=reason,
+        )
+    except Exception as e:
+        print(f"[memory] Failed to record blocked trade: {e}")
+        return None
 
 
 def evaluate_missed_moves(current_price: float, current_cycle: int) -> list[dict]:
-    """Check if any blocked trades would have been profitable.
+    """Evaluate blocked trades at +5 and +20 cycle checkpoints.
 
-    Called periodically (e.g., every 10 cycles). Checks trades blocked
-    5+ cycles ago and evaluates if price moved favorably.
+    v7.1: Multi-checkpoint evaluation with severity classification.
+    Called every 10 cycles.
     """
     session_id = session_manager.get_session_id()
     if not session_id:
         return []
 
     results = []
-    remaining = []
 
-    for pending in _pending_missed:
-        cycles_ago = current_cycle - pending["cycle"]
-        if cycles_ago < 5:
-            remaining.append(pending)
-            continue
+    # Evaluate at +5 cycles
+    pending_5 = db.get_pending_missed(checkpoint=5, current_cycle=current_cycle)
+    for missed in pending_5:
+        price_at_record = missed["price_at_record"]
+        move_pct = (current_price - price_at_record) / price_at_record * 100
 
-        # Evaluate: would a BUY have been profitable?
-        price_change_pct = (current_price - pending["price"]) / pending["price"] * 100
-        if price_change_pct > 0.3:
-            # Missed a move — market went up >0.3%
+        # Classify severity
+        was_missed = move_pct > MISSED_MINOR_PCT
+        if move_pct > MISSED_MAJOR_PCT:
+            severity = "major"
+        elif move_pct > MISSED_MODERATE_PCT:
+            severity = "moderate"
+        elif move_pct > MISSED_MINOR_PCT:
+            severity = "minor"
+        else:
+            severity = None
+
+        db.update_missed_evaluation(
+            missed_id=missed["missed_id"],
+            checkpoint=5,
+            price=current_price,
+            move_pct=round(move_pct, 4),
+            was_missed=was_missed,
+            severity=severity,
+        )
+
+        if was_missed and severity in ("moderate", "major"):
             pattern = _build_pattern(
-                regime=pending["regime"], strategy=pending["strategy"],
-                extra=f"blocked_{pending['reason'][:20]}"
+                regime=missed["regime"], strategy=missed["strategy"],
+                extra=f"blocked_{missed['block_reason'][:20]}"
             )
-            lesson = (f"Missed move: blocked {pending['strategy']} BUY at "
-                      f"${pending['price']:,.0f} (score {pending['score']:.0f}), "
-                      f"price rose {price_change_pct:.1f}% to ${current_price:,.0f}")
+            lesson = (f"Missed move ({severity}): blocked {missed['strategy']} BUY at "
+                      f"${price_at_record:,.0f} (score {missed['score_at_record']:.0f}), "
+                      f"price rose {move_pct:.1f}% to ${current_price:,.0f} in 5 cycles")
             _insert_if_meaningful(
-                session_id, "missed_move", pending["regime"],
-                pending["strategy"], pattern, lesson,
-                confidence_weight=0.4, outcome=price_change_pct
+                session_id, "missed_move", missed["regime"],
+                missed["strategy"], pattern, lesson,
+                confidence_weight=0.4, outcome=move_pct
             )
-            results.append({"type": "missed_move", "pattern": pattern,
-                            "price_change_pct": price_change_pct})
-        # Either evaluated or too old — don't keep
-        if cycles_ago > 30:
-            continue
-        remaining.append(pending)
+            results.append({"type": "missed_move", "severity": severity,
+                            "pattern": pattern, "move_pct": round(move_pct, 2)})
 
-    _pending_missed[:] = remaining
+    # Evaluate at +20 cycles
+    pending_20 = db.get_pending_missed(checkpoint=20, current_cycle=current_cycle)
+    for missed in pending_20:
+        price_at_record = missed["price_at_record"]
+        move_pct = (current_price - price_at_record) / price_at_record * 100
+
+        was_missed = move_pct > MISSED_MODERATE_PCT
+        if move_pct > MISSED_MAJOR_PCT:
+            severity = "major"
+        elif move_pct > MISSED_MODERATE_PCT:
+            severity = "moderate"
+        else:
+            severity = None
+
+        db.update_missed_evaluation(
+            missed_id=missed["missed_id"],
+            checkpoint=20,
+            price=current_price,
+            move_pct=round(move_pct, 4),
+            was_missed=was_missed,
+            severity=severity,
+        )
+
+        # Only generate memory for major misses at +20 (moderate already logged at +5)
+        if was_missed and severity == "major" and not missed.get("was_missed"):
+            pattern = _build_pattern(
+                regime=missed["regime"], strategy=missed["strategy"],
+                extra=f"blocked_{missed['block_reason'][:20]}"
+            )
+            lesson = (f"Major missed move: blocked {missed['strategy']} BUY at "
+                      f"${price_at_record:,.0f}, price rose {move_pct:.1f}% "
+                      f"over 20 cycles. Filters may be too strict.")
+            _insert_if_meaningful(
+                session_id, "missed_move", missed["regime"],
+                missed["strategy"], pattern, lesson,
+                confidence_weight=0.6, outcome=move_pct
+            )
+            results.append({"type": "missed_move_20c", "severity": "major",
+                            "move_pct": round(move_pct, 2)})
+
     return results
+
+
+def get_chronic_blocks(min_misses: int = 3) -> list[dict]:
+    """Detect strategies/regimes that chronically miss opportunities.
+
+    Returns patterns like "HUNTER blocked in WAKING_UP missed 5 moves avg 0.7%".
+    """
+    summary = db.get_missed_opportunity_summary()
+    chronic = []
+
+    for strat_info in summary.get("by_strategy", []):
+        missed_count = strat_info.get("missed", 0)
+        if missed_count >= min_misses:
+            chronic.append({
+                "strategy": strat_info.get("strategy", ""),
+                "total_blocks": strat_info.get("cnt", 0),
+                "confirmed_misses": missed_count,
+                "issue": f"{strat_info['strategy']} chronically blocked — "
+                         f"{missed_count} confirmed missed opportunities",
+            })
+
+    return chronic
 
 
 # ---------------------------------------------------------------------------

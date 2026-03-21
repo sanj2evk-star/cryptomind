@@ -1240,7 +1240,7 @@ def run_cycle(user_id: str = "admin") -> dict:
     _state["last_update"] = datetime.now(timezone.utc).isoformat()
     _state["cycle_count"] += 1
 
-    # --- v7: Persistence hooks ---
+    # --- v7 + v7.1: Persistence + Intelligence hooks ---
     try:
         import session_manager
         import memory_engine
@@ -1261,8 +1261,9 @@ def run_cycle(user_id: str = "admin") -> dict:
         )
 
         # Log trade to DB (alongside CSV)
+        trade_id_main = None
         if result["action"] in ("BUY", "SELL"):
-            session_manager.on_trade_executed(
+            trade_id_main = session_manager.on_trade_executed(
                 action=result["action"], price=price,
                 qty=result.get("quantity", 0),
                 dollar_size=result.get("quantity", 0) * price,
@@ -1274,11 +1275,40 @@ def run_cycle(user_id: str = "admin") -> dict:
                 reason=decision.get("reasoning", ""),
             )
 
+        # --- v7.1: Delayed Outcome Evaluation ---
+        try:
+            import outcome_engine
+            # Register BUY for delayed evaluation
+            if result["action"] == "BUY" and trade_id_main:
+                outcome_engine.register_outcome(
+                    trade_id=trade_id_main, price=price,
+                    cycle=_state["cycle_count"],
+                    strategy="main", regime=mkt_regime,
+                    entry_type="full",
+                    score=decision.get("score", 0),
+                    confidence=decision.get("confidence", 0),
+                )
+            # Evaluate all pending checkpoints every cycle
+            outcome_engine.evaluate_checkpoints(price, _state["cycle_count"])
+        except Exception as oe:
+            print(f"[v7.1] Outcome engine error: {oe}")
+
+        # --- v7.1: Behavior Intelligence (every 10 cycles) ---
+        if _state["cycle_count"] % 10 == 0:
+            try:
+                import behavior_intelligence
+                behavior_intelligence.update_behavior_state(
+                    session_id=session_manager.get_session_id(),
+                    current_cycle=_state["cycle_count"],
+                )
+            except Exception as bie:
+                print(f"[v7.1] Behavior intelligence error: {bie}")
+
         # Evaluate missed moves periodically
         if _state["cycle_count"] % 10 == 0:
             memory_engine.evaluate_missed_moves(price, _state["cycle_count"])
 
-        # Feedback loop check
+        # Feedback loop check (includes regime intelligence at 50-cycle intervals)
         feedback_engine.run_feedback_check(
             cycle_number=_state["cycle_count"],
             recent_trades=[],
@@ -1287,7 +1317,7 @@ def run_cycle(user_id: str = "admin") -> dict:
             market_quality=_get_market_quality(),
         )
 
-        # Daily review check
+        # Daily review check (now generates structured bias in v7.1)
         daily_review.check_daily_review()
 
     except Exception as e:
@@ -1439,12 +1469,12 @@ def run_cycle(user_id: str = "admin") -> dict:
                               f"from {trade_strategy}: qty={probe_result['quantity']:.8f} BTC "
                               f"cash={portfolio['cash']:.2f} btc={portfolio['btc_holdings']:.8f}")
 
-                        # ── v7: Log to DB + evaluate memory ──
+                        # ── v7 + v7.1: Log to DB + evaluate memory + regime intel ──
                         try:
                             import session_manager as sm
                             import memory_engine as me
 
-                            sm.on_trade_executed(
+                            ms_trade_id = sm.on_trade_executed(
                                 action=trade_action, price=price,
                                 qty=probe_result.get("quantity", 0),
                                 dollar_size=probe_result.get("quantity", 0) * price,
@@ -1456,6 +1486,21 @@ def run_cycle(user_id: str = "admin") -> dict:
                                 reason=trade_reason_str,
                                 market_quality=_get_market_quality(),
                             )
+
+                            # v7.1: Register BUY for delayed outcome evaluation
+                            if trade_action == "BUY" and ms_trade_id:
+                                try:
+                                    import outcome_engine
+                                    outcome_engine.register_outcome(
+                                        trade_id=ms_trade_id, price=price,
+                                        cycle=_state["cycle_count"],
+                                        strategy=trade_strategy, regime=trade_regime_str,
+                                        entry_type=trade_entry_type,
+                                        score=trade_score,
+                                        confidence=best.get("confidence", 0),
+                                    )
+                                except Exception:
+                                    pass
 
                             # After SELL: evaluate the trade pair for memory
                             if trade_action == "SELL" and probe_result.get("pnl", 0) != 0:
@@ -1482,6 +1527,19 @@ def run_cycle(user_id: str = "admin") -> dict:
                                         "trend": inds.get("trend", "sideways"),
                                     },
                                 )
+
+                                # v7.1: Record to regime intelligence
+                                try:
+                                    import regime_intelligence
+                                    regime_intelligence.record_trade_for_regime(
+                                        session_id=sm.get_session_id(),
+                                        regime=trade_regime_str,
+                                        strategy=trade_strategy,
+                                        pnl=probe_result.get("pnl", 0),
+                                        entry_type=trade_entry_type,
+                                    )
+                                except Exception:
+                                    pass
                         except Exception as v7e:
                             print(f"[v7] Multi-strategy DB hook error: {v7e}")
 

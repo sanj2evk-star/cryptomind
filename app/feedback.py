@@ -1,11 +1,12 @@
 """
-feedback.py — CryptoMind v7 Feedback Loop + Behavior Adaptation Engine.
+feedback.py — CryptoMind v7.1 Feedback Loop + Behavior Adaptation Engine.
 
 Periodic self-review system that:
 1. Inspects recent trades, blocked trades, strategy outcomes
 2. Detects patterns (overtrading, undertrading, missed moves)
-3. Generates adaptation candidates
-4. Applies bounded parameter adjustments to behavior profile
+3. v7.1: Uses regime intelligence + behavior state + missed opportunity data
+4. Generates adaptation candidates
+5. Applies bounded parameter adjustments to behavior profile
 
 Runs every REVIEW_INTERVAL_CYCLES (50 cycles ≈ 25 min at 30s intervals).
 
@@ -14,6 +15,7 @@ RULES:
 - Minimum observation count before any adaptation fires
 - Every adaptation is logged and later validated
 - Adaptations are reversible
+- v7.1: No impulsive adaptation — evidence-based only
 """
 
 from __future__ import annotations
@@ -216,7 +218,81 @@ def _generate_adaptations(review: dict, cycle_number: int,
     if not profile:
         return []
 
-    for issue in issues:
+    # --- v7.1: Intelligence-driven issue detection ---
+    # Check behavior state for prolonged punishing market
+    try:
+        bstate = db.get_behavior_state(session_id)
+        if bstate and bstate.get("market_reward_state") == "punishing_aggression":
+            if "defensive_adaptation" not in issues:
+                issues.append("defensive_adaptation")
+    except Exception:
+        pass
+
+    # Check missed opportunities for chronic blocks
+    try:
+        import memory_engine
+        chronic = memory_engine.get_chronic_blocks(min_misses=5)
+        if chronic and "opportunity_sensitivity" not in issues:
+            issues.append("opportunity_sensitivity")
+    except Exception:
+        pass
+
+    # Process v7.1 issues
+    for issue in [i for i in issues if i in ("defensive_adaptation", "opportunity_sensitivity")]:
+        last = _last_adaptation_types.get(issue, 0)
+        if cycle_number - last < ADAPTATION_COOLDOWN_CYCLES:
+            continue
+
+        adaptation = None
+
+        if issue == "defensive_adaptation":
+            old_val = profile.get("patience", 0.5)
+            new_val = _bounded_adjust(old_val, ADAPT_STEP, "patience")
+            if new_val != old_val:
+                adaptation = {
+                    "trigger_type": "defensive_market_response",
+                    "old_behavior": f"patience={old_val:.3f}",
+                    "new_behavior": f"patience={new_val:.3f}",
+                    "reason": "Market punishing aggression — increase patience",
+                    "expected_effect": "Wait for stronger signals, reduce false entries",
+                    "param": "patience",
+                    "new_value": new_val,
+                }
+
+        elif issue == "opportunity_sensitivity":
+            old_val = profile.get("conviction_threshold", 0.5)
+            new_val = _bounded_adjust(old_val, -ADAPT_STEP, "conviction_threshold")
+            if new_val != old_val:
+                adaptation = {
+                    "trigger_type": "chronic_missed_opportunities",
+                    "old_behavior": f"conviction_threshold={old_val:.3f}",
+                    "new_behavior": f"conviction_threshold={new_val:.3f}",
+                    "reason": "Chronically blocking profitable trades — lower conviction bar",
+                    "expected_effect": "Allow more entries when blocked trades would have succeeded",
+                    "param": "conviction_threshold",
+                    "new_value": new_val,
+                }
+
+        if adaptation:
+            # Apply the adaptation
+            db.upsert_behavior_profile(session_id, **{adaptation["param"]: adaptation["new_value"]})
+            db.insert_adaptation(
+                session_id=session_id,
+                trigger_type=adaptation["trigger_type"],
+                old_behavior=adaptation["old_behavior"],
+                new_behavior=adaptation["new_behavior"],
+                reason=adaptation["reason"],
+                expected_effect=adaptation["expected_effect"],
+            )
+            _last_adaptation_types[issue] = cycle_number
+            db.upsert_system_state(
+                last_adaptation_at=datetime.now(timezone.utc).isoformat()
+            )
+            adaptations.append(adaptation)
+            print(f"[feedback] v7.1 Adaptation: {adaptation['trigger_type']} → "
+                  f"{adaptation['old_behavior']} → {adaptation['new_behavior']}")
+
+    for issue in [i for i in issues if i not in ("defensive_adaptation", "opportunity_sensitivity")]:
         # Check cooldown
         last = _last_adaptation_types.get(issue, 0)
         if cycle_number - last < ADAPTATION_COOLDOWN_CYCLES:
