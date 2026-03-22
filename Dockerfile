@@ -1,13 +1,13 @@
 ###############################################################################
-# Backend Dockerfile — BTC Paper Trader API
+# Backend Dockerfile — CryptoMind API
 #
 # Multi-stage build:
 #   Stage 1: Install Python dependencies in a clean layer
-#   Stage 2: Copy app code on top of deps (fast rebuilds)
+#   Stage 2: Copy app code + built frontend on top (fast rebuilds)
 #
 # Usage:
-#   docker build -t btc-trader-api .
-#   docker run -p 8000:8000 --env-file .env btc-trader-api
+#   docker build -t cryptomind .
+#   docker run -p 8000:8000 --env-file .env cryptomind
 ###############################################################################
 
 # ---------------------------------------------------------------------------
@@ -36,7 +36,10 @@ COPY app/ ./app/
 COPY prompts/ ./prompts/
 COPY run_api.py .
 
-# Copy data templates (will be overwritten by volume mount)
+# Copy built frontend (committed to git — no build step needed)
+COPY frontend/dist/ ./frontend/dist/
+
+# Copy data templates (DB is created at runtime, not bundled)
 COPY data/portfolio.json ./data/portfolio.json
 COPY data/strategies.json ./data/strategies.json
 COPY data/equity.csv ./data/equity.csv
@@ -44,7 +47,7 @@ COPY data/trades.csv ./data/trades.csv
 COPY data/decisions.csv ./data/decisions.csv
 
 # Create directories that may not exist yet
-RUN mkdir -p data/cache data/charts data/reports
+RUN mkdir -p data/cache data/charts data/reports data/users
 
 # Non-root user for security
 RUN useradd --create-home appuser
@@ -54,6 +57,6 @@ USER appuser
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')" || exit 1
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 CMD ["python", "run_api.py", "--host", "0.0.0.0", "--port", "8000"]

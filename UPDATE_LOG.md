@@ -4,6 +4,38 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.6.4 — Fix Render Deployment + Runtime Status
+**Date:** 2026-03-22
+
+### What Changed
+- **`render.yaml`** — Simplified build command to `pip install -r requirements.txt` (frontend/dist already committed to git, no npm build needed on Render). Removed Node.js dependency from build.
+- **`Dockerfile`** — Updated to include `frontend/dist/` in image, use `/health` for healthcheck
+- **`app/api.py`** — Added `GET /v7/system/runtime-status` endpoint: shows backend alive, trader running, DB status, env var presence, lifetime cycles/trades, warnings
+- **`CLAUDE.md`** — Already web-only from v7.6.3
+
+### Root Cause of Render 404s
+The Render service was manually created via the dashboard (likely as a static site), not from `render.yaml`. This means `render.yaml` auto-deploy was ignored. The old CRA static build was being served instead of the Python backend.
+
+### Why Zero Cycles/Trades
+The auto_trader IS wired correctly to write v7 DB entries (`session_manager.on_cycle_complete`, `on_trade_executed`). But the backend was only started locally for brief development/deployment sessions. The auto_trader ran ~605 cycles in CSV mode (Mar 18-20) but all were HOLDs. After v7 DB was created (Mar 21), no cycles ran.
+
+### Render Dashboard Steps Required
+1. Delete the existing static site service on Render
+2. Create new **Web Service** from the same GitHub repo
+3. Set runtime: Python, build: `pip install -r requirements.txt`, start: `python run_api.py --host 0.0.0.0 --port $PORT`
+4. Add env vars: `ANTHROPIC_API_KEY`, `API_PASSWORD`, `JWT_SECRET`
+5. Or: connect to Blueprint and let `render.yaml` handle it
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `render.yaml` | Simplified build (no npm), removed Node.js |
+| `Dockerfile` | Include frontend/dist, updated healthcheck |
+| `app/api.py` | Added `/v7/system/runtime-status` endpoint |
+| `UPDATE_LOG.md` | This entry |
+
+---
+
 ## v7.6.3 — Remove Desktop App (Web-Only)
 **Date:** 2026-03-22
 

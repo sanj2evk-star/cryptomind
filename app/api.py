@@ -2118,6 +2118,72 @@ def get_continuity_audit():
 
 
 # ---------------------------------------------------------------------------
+# v7.6.3: Runtime Status (deployment verification)
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/system/runtime-status")
+def get_runtime_status():
+    """Operational health — backend alive, trader running, DB status, env vars."""
+    import os
+    import time as _time
+    from config import DATA_DIR, PROJECT_ROOT
+    from pathlib import Path
+
+    db_path = DATA_DIR / "cryptomind.db"
+    trader_state = auto_trader.get_state()
+
+    # Check env vars
+    env_status = {}
+    for key in ("ANTHROPIC_API_KEY", "JWT_SECRET", "API_USERNAME", "API_PASSWORD",
+                "PORT", "CORS_ORIGINS"):
+        val = os.getenv(key, "")
+        env_status[key] = "set" if val else "missing"
+
+    # DB info
+    db_info = {"path": str(db_path), "exists": db_path.exists()}
+    if db_path.exists():
+        stat = db_path.stat()
+        db_info["size_bytes"] = stat.st_size
+        db_info["modified"] = _time.ctime(stat.st_mtime)
+
+    # Session info
+    try:
+        import session_manager
+        import db as v7db
+        system = v7db.get_system_state() or {}
+        sid = session_manager.get_session_id()
+    except Exception:
+        system = {}
+        sid = None
+
+    # Warnings
+    warnings = []
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        warnings.append("ANTHROPIC_API_KEY not set — Claude features disabled")
+    if not trader_state.get("running"):
+        warnings.append("Auto-trader not running")
+    if not db_path.exists():
+        warnings.append("Database file missing")
+    if system.get("total_lifetime_cycles", 0) == 0:
+        warnings.append("Zero lifetime cycles — auto-trader may not have run yet")
+
+    return {
+        "status": "ok",
+        "version": session_manager.APP_VERSION if sid else "unknown",
+        "session_id": sid,
+        "trader_running": trader_state.get("running", False),
+        "trader_cycles": trader_state.get("cycle_count", 0),
+        "last_price": trader_state.get("last_price", 0),
+        "lifetime_cycles": system.get("total_lifetime_cycles", 0),
+        "lifetime_trades": system.get("total_lifetime_trades", 0),
+        "db": db_info,
+        "env": env_status,
+        "warnings": warnings,
+        "ready": len([w for w in warnings if "missing" in w.lower()]) == 0,
+    }
+
+
+# ---------------------------------------------------------------------------
 # v7.6: Signal Layer (Observer-Only)
 # ---------------------------------------------------------------------------
 
