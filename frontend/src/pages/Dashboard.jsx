@@ -733,19 +733,26 @@ export default function Dashboard() {
           <SimpleEquityChart equity={(autoEquity?.points || []).map(p => ({ timestamp: p.timestamp, total_equity: p.equity }))} />
         </div>
 
-        {/* Right: Auto-Trades — fixed height, scrollable */}
+        {/* Right: Auto-Trades + Decisions (unified with toggle) */}
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-            <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>Recent Auto-Trades</span>
-            <button onClick={() => setShowHolds(h => !h)} style={{
-              padding: "2px 8px", border: "none", borderRadius: 3, fontSize: 9, fontWeight: 600, cursor: "pointer",
-              background: showHolds ? "var(--surface)" : "var(--bg)",
-              color: showHolds ? "var(--text)" : "var(--text-muted)",
-            }}>
-              {showHolds ? "All" : "Trades Only"}
-            </button>
+            <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3 }}>Recent Activity</span>
+            <div style={{ display: "flex", gap: 1, background: "var(--bg)", borderRadius: 4, padding: 1 }}>
+              <button onClick={() => setShowHolds(false)} style={{
+                padding: "2px 8px", border: "none", borderRadius: 3, fontSize: 9, fontWeight: 600, cursor: "pointer",
+                background: !showHolds ? "var(--surface)" : "transparent",
+                color: !showHolds ? "var(--text)" : "var(--text-muted)",
+              }}>Trades</button>
+              <button onClick={() => setShowHolds(true)} style={{
+                padding: "2px 8px", border: "none", borderRadius: 3, fontSize: 9, fontWeight: 600, cursor: "pointer",
+                background: showHolds ? "var(--surface)" : "transparent",
+                color: showHolds ? "var(--text)" : "var(--text-muted)",
+              }}>All Decisions</button>
+            </div>
           </div>
-          {filteredTrades.length > 0 ? (
+
+          {/* Trades Only mode — table of executed BUY/SELL from trade_ledger */}
+          {!showHolds && filteredTrades.length > 0 && (
             <div className="table-wrap" style={{ maxHeight: proMode ? (isTouch ? 300 : 340) : (isTouch ? 260 : 280), overflowY: "auto" }}>
               <table style={{ fontSize: 11 }}>
                 <thead>
@@ -762,22 +769,18 @@ export default function Dashboard() {
                   {filteredTrades.slice(0, maxTradeRows).map((t, i) => {
                     const pnl = parseFloat(t.pnl) || 0;
                     const action = (t.action || "HOLD").toUpperCase();
-                    const isHold = action === "HOLD";
                     const isBuy = action === "BUY";
                     const isSell = action === "SELL";
                     const isHighlighted = proMode && highlightRow === t.timestamp;
-                    const qty = parseFloat(t.quantity) || 0;
+                    const qty = parseFloat(t.quantity || t.qty) || 0;
                     const tPrice = parseFloat(t.price) || 0;
                     const posSize = qty * tPrice;
                     const posPct = equity > 0 ? (posSize / equity * 100) : 0;
                     return (
                       <tr key={i} style={{
-                        opacity: isHold ? 0.4 : 1,
                         background: isHighlighted
-                          ? (isBuy ? "rgba(34,197,94,0.15)" : isSell ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.1)")
-                          : proMode
-                            ? (isBuy ? "rgba(34,197,94,0.08)" : isSell ? "rgba(239,68,68,0.08)" : "transparent")
-                            : (isBuy ? "rgba(34,197,94,0.04)" : isSell ? "rgba(239,68,68,0.04)" : "transparent"),
+                          ? (isBuy ? "rgba(34,197,94,0.15)" : isSell ? "rgba(239,68,68,0.15)" : "transparent")
+                          : (isBuy ? "rgba(34,197,94,0.04)" : isSell ? "rgba(239,68,68,0.04)" : "transparent"),
                         transition: "background 0.5s ease",
                       }}>
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px", fontSize: 10 }}>{fmtLocalTimeShort(t.timestamp)}</td>
@@ -794,59 +797,66 @@ export default function Dashboard() {
                         <td style={{ padding: isTouch ? "6px 10px" : "2px 6px", color: pnl >= 0 ? "var(--green)" : "var(--red)", fontWeight: pnl < 0 ? 700 : 400 }}>
                           {pnl < 0 && "▼ "}{pnl > 0 && "▲ "}{fmt(pnl)}
                         </td>
-                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{t.score ?? "—"}</td>
+                        <td style={{ padding: isTouch ? "6px 10px" : "2px 6px" }}>{t.score ?? t.decision_score ?? "—"}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-          ) : (
+          )}
+
+          {/* No trades yet — show in Trades mode */}
+          {!showHolds && filteredTrades.length === 0 && (!recentDecisions?.decisions?.length) && (
             <EmptyState title="Waiting for trades" message="Engine will trade when signals align." />
+          )}
+
+          {/* No trades but decisions exist — nudge to toggle */}
+          {!showHolds && filteredTrades.length === 0 && recentDecisions?.decisions?.length > 0 && (
+            <div style={{ padding: "12px 16px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>
+              No executed trades yet. <button onClick={() => setShowHolds(true)} style={{
+                background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: 11, fontWeight: 600, textDecoration: "underline",
+              }}>View all decisions</button> to see the system thinking.
+            </div>
+          )}
+
+          {/* All Decisions mode — compact feed from cycle_snapshots */}
+          {showHolds && recentDecisions?.decisions?.length > 0 && (
+            <div style={{ maxHeight: proMode ? (isTouch ? 300 : 340) : (isTouch ? 260 : 280), overflowY: "auto" }}>
+              {recentDecisions.decisions.map((d, i) => {
+                const action = (d.decision_action || "HOLD").toUpperCase();
+                const isBuy = action === "BUY";
+                const isSell = action === "SELL";
+                const isHold = action === "HOLD";
+                return (
+                  <div key={i} style={{
+                    display: "flex", gap: 8, alignItems: "center",
+                    padding: isTouch ? "5px 0" : "3px 0", borderBottom: "1px solid var(--border)",
+                    opacity: isHold ? 0.5 : 1, fontSize: 11,
+                  }}>
+                    <span style={{ fontSize: 9, color: "var(--text-muted)", minWidth: 42 }}>
+                      {fmtLocalTimeShort(d.timestamp)}
+                    </span>
+                    <span style={{
+                      padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 700,
+                      background: isBuy ? "#22c55e22" : isSell ? "#ef444422" : "#6b728015",
+                      color: isBuy ? "#22c55e" : isSell ? "#ef4444" : "#6b7280",
+                      minWidth: 32, textAlign: "center",
+                    }}>{action}</span>
+                    <span style={{ color: "var(--text)", fontSize: 10 }}>{fmtPrice(d.price)}</span>
+                    <span style={{ fontSize: 9, color: "var(--text-muted)" }}>
+                      S:{d.decision_score?.toFixed(0) || "—"}
+                    </span>
+                    <span style={{ fontSize: 9, color: "var(--text-muted)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {d.short_summary || d.regime || ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
-
-      {/* ── Recent Decisions (includes HOLDs — shows system is alive) ── */}
-      {recentDecisions?.decisions?.length > 0 && (
-        <div className="card" style={{ marginTop: 8, padding: "8px 12px" }}>
-          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>
-            Recent Decisions
-          </div>
-          <div style={{ maxHeight: isTouch ? 160 : 180, overflowY: "auto" }}>
-            {recentDecisions.decisions.map((d, i) => {
-              const action = (d.decision_action || "HOLD").toUpperCase();
-              const isBuy = action === "BUY";
-              const isSell = action === "SELL";
-              const isHold = action === "HOLD";
-              return (
-                <div key={i} style={{
-                  display: "flex", gap: 8, alignItems: "center",
-                  padding: "3px 0", borderBottom: "1px solid var(--border)",
-                  opacity: isHold ? 0.5 : 1, fontSize: 11,
-                }}>
-                  <span style={{ fontSize: 9, color: "var(--text-muted)", minWidth: 42 }}>
-                    {fmtLocalTimeShort(d.timestamp)}
-                  </span>
-                  <span style={{
-                    padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 700,
-                    background: isBuy ? "#22c55e22" : isSell ? "#ef444422" : "#6b728015",
-                    color: isBuy ? "#22c55e" : isSell ? "#ef4444" : "#6b7280",
-                    minWidth: 32, textAlign: "center",
-                  }}>{action}</span>
-                  <span style={{ color: "var(--text)", fontSize: 10 }}>{fmtPrice(d.price)}</span>
-                  <span style={{ fontSize: 9, color: "var(--text-muted)" }}>
-                    S:{d.decision_score?.toFixed(0) || "—"}
-                  </span>
-                  <span style={{ fontSize: 9, color: "var(--text-muted)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {d.short_summary || d.regime || ""}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Portfolio Manager Drawer */}
       <PortfolioDrawer
