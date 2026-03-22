@@ -5,10 +5,70 @@ const CARD = {
   background: "var(--surface)", border: "1px solid var(--border)",
   borderRadius: 8, padding: "14px 16px", marginBottom: 8,
 };
+const CARD_COMPACT = {
+  background: "var(--surface)", border: "1px solid var(--border)",
+  borderRadius: 8, padding: "10px 14px", marginBottom: 6,
+};
 const LBL = {
   fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase",
   letterSpacing: 0.4, marginBottom: 4,
 };
+
+/* ── Collapsible Section — iPad-optimized with touch-friendly toggle ── */
+/* Supports external override via `forceOpen` prop (true/false/null) */
+function Collapsible({ title, badge, defaultOpen = true, forceOpen = null, children }) {
+  const [localOpen, setLocalOpen] = useState(defaultOpen);
+  const open = forceOpen !== null ? forceOpen : localOpen;
+  const toggle = () => setLocalOpen(prev => !prev);
+  return (
+    <div style={{marginBottom:8}}>
+      <button
+        onClick={toggle}
+        style={{
+          display:"flex",justifyContent:"space-between",alignItems:"center",
+          width:"100%",padding:"8px 14px",
+          background:"var(--surface)",border:"1px solid var(--border)",
+          borderRadius:open?"8px 8px 0 0":"8px",cursor:"pointer",
+          fontSize:11,fontWeight:600,color:"var(--text)",
+          textTransform:"uppercase",letterSpacing:0.3,
+          WebkitTapHighlightColor:"transparent",
+          minHeight:38,
+        }}
+      >
+        <span style={{display:"flex",alignItems:"center",gap:6}}>
+          {title}
+          {badge && <span style={{fontSize:9,fontWeight:400,color:"var(--text-muted)",textTransform:"none",letterSpacing:0}}>{badge}</span>}
+        </span>
+        <span style={{fontSize:10,color:"var(--text-muted)",transition:"transform 0.2s",transform:open?"rotate(0)":"rotate(-90deg)"}}>{open?"▾":"▸"}</span>
+      </button>
+      {open && (
+        <div style={{
+          border:"1px solid var(--border)",borderTop:"none",
+          borderRadius:"0 0 8px 8px",padding:"10px 14px",
+          background:"var(--surface)",
+        }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Global Collapse Controls ── */
+function CollapseControls({ onExpandAll, onCollapseAll }) {
+  const btnStyle = {
+    padding:"4px 10px",borderRadius:4,fontSize:10,fontWeight:600,
+    border:"1px solid var(--border)",background:"var(--surface)",
+    color:"var(--text-muted)",cursor:"pointer",
+    WebkitTapHighlightColor:"transparent",
+  };
+  return (
+    <div style={{display:"flex",gap:4}}>
+      <button style={btnStyle} onClick={onExpandAll}>Expand All</button>
+      <button style={btnStyle} onClick={onCollapseAll}>Collapse All</button>
+    </div>
+  );
+}
 
 /* ── Mood sigil icons (monochrome SVG) ── */
 function MoodSigil({ mood, size = 52 }) {
@@ -324,6 +384,13 @@ export default function Lab() {
   const {data:ltPortfolioD}  = useApi("/v7/lifetime/portfolio", 60000);
   const {data:crowdD}        = useApi("/v7/crowd/belief-vs-reality", 30000);
 
+  // Global collapse control: null = use local state, true/false = override
+  const [globalCollapse, setGlobalCollapse] = useState(null);
+  const expandAll = () => setGlobalCollapse(true);
+  const collapseAll = () => setGlobalCollapse(false);
+  // Reset override after user interaction so individual toggles work again
+  const resetOverride = () => { if (globalCollapse !== null) setTimeout(() => setGlobalCollapse(null), 50); };
+
   const mood        = mindState?.mood || "idle_waiting";
   const moodLabel   = mindState?.mood_label || "Starting up…";
   const moodDesc    = mindState?.mood_desc || "Gathering data.";
@@ -378,19 +445,42 @@ export default function Lab() {
 
   return (
     <>
-      {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:4}}>
-        <h1 style={{margin:0,fontSize:18,fontWeight:700}}>Lab</h1>
-        <div style={{display:"flex",alignItems:"center",gap:6}}>
+      {/* ── Sticky Summary Bar — always visible on iPad ── */}
+      <div style={{
+        position:"sticky",top:0,zIndex:20,
+        display:"flex",justifyContent:"space-between",alignItems:"center",
+        padding:"8px 14px",marginBottom:8,
+        background:"var(--surface)",border:"1px solid var(--border)",
+        borderRadius:8,backdropFilter:"blur(8px)",
+        flexWrap:"wrap",gap:6,
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <h1 style={{margin:0,fontSize:16,fontWeight:700}}>Lab</h1>
+          {!isWarmingUp && (
+            <span style={{
+              padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,
+              background:`${moodColor}18`,color:moodColor,
+              border:`1px solid ${moodColor}33`,
+            }}>{moodLabel}</span>
+          )}
           {isStale && <StaleBadge/>}
-          <span style={{fontSize:10,color:"var(--text-muted)"}}>Observer Core v7.5</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,fontSize:10,color:"var(--text-muted)",flexWrap:"wrap"}}>
+          {!isWarmingUp && <>
+            <span>Clarity: <b style={{color:"var(--text)"}}>{clarity}%</b></span>
+            <span>Noise: <b style={{color:"var(--text)"}}>{((radar.noise_ratio||0)*100).toFixed(0)}%</b></span>
+            <span>F&G: <b style={{color:"var(--text)"}}>{fg.value ?? "—"}</b></span>
+            <span>Level: <b style={{color:"#8b5cf6"}}>{level}</b></span>
+          </>}
+          <CollapseControls onExpandAll={()=>{expandAll();resetOverride()}} onCollapseAll={()=>{collapseAll();resetOverride()}}/>
+          <span style={{opacity:0.5}}>v7.5.3</span>
         </div>
       </div>
 
       {/* ── Hero: Mind State ── */}
-      <div style={{...CARD,borderLeft:`3px solid ${moodColor}`,display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap"}}>
-        <MoodSigil mood={mood} size={56}/>
-        <div style={{flex:1,minWidth:200}}>
+      <div style={{...CARD_COMPACT,borderLeft:`3px solid ${moodColor}`,display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}}>
+        <MoodSigil mood={mood} size={48}/>
+        <div style={{flex:1,minWidth:180}}>
           {isWarmingUp ? (
             <WarmUp
               text="CryptoMind is warming up. Still gathering enough world context."
@@ -398,27 +488,27 @@ export default function Lab() {
             />
           ) : (
             <>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-                <span style={{fontSize:16,fontWeight:700,color:moodColor}}>{moodLabel}</span>
-                <span style={{padding:"2px 8px",borderRadius:4,fontSize:9,fontWeight:600,background:"var(--bg)",color:"var(--text-muted)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+                <span style={{fontSize:15,fontWeight:700,color:moodColor}}>{moodLabel}</span>
+                <span style={{padding:"2px 7px",borderRadius:4,fontSize:9,fontWeight:600,background:"var(--bg)",color:"var(--text-muted)"}}>
                   impulse: {impulse}
                 </span>
               </div>
-              <div style={{fontSize:12,color:"var(--text-muted)",marginBottom:4}}>{moodDesc}</div>
-              {focus && <div style={{fontSize:10,color:"#8b5cf6",marginBottom:6}}>Focus: {focus}</div>}
+              <div style={{fontSize:11,color:"var(--text-muted)",marginBottom:3}}>{moodDesc}</div>
+              {focus && <div style={{fontSize:10,color:"#8b5cf6",marginBottom:4}}>Focus: {focus}</div>}
 
-              {thoughts.map((t,i)=>(
-                <div key={i} style={{fontSize:11,color:"var(--text)",marginBottom:2}}>
+              {thoughts.slice(0,3).map((t,i)=>(
+                <div key={i} style={{fontSize:11,color:"var(--text)",marginBottom:1}}>
                   <span style={{color:"#8b5cf6",marginRight:4}}>◎</span>{t}
                 </div>
               ))}
-              {concerns.map((c,i)=>(
-                <div key={i} style={{fontSize:11,color:"#d97706",marginBottom:2}}>
+              {concerns.slice(0,2).map((c,i)=>(
+                <div key={i} style={{fontSize:11,color:"#d97706",marginBottom:1}}>
                   <span style={{marginRight:4}}>◈</span>{c}
                 </div>
               ))}
-              {opps.map((o,i)=>(
-                <div key={i} style={{fontSize:11,color:"#22c55e",marginBottom:2}}>
+              {opps.slice(0,2).map((o,i)=>(
+                <div key={i} style={{fontSize:11,color:"#22c55e",marginBottom:1}}>
                   <span style={{marginRight:4}}>●</span>{o}
                 </div>
               ))}
@@ -430,15 +520,15 @@ export default function Lab() {
         </div>
       </div>
 
-      {/* ── 3-col → stacks on tablet portrait, 2-col on landscape ── */}
+      {/* ── 2-col responsive grid — Radar / F&G / Side Hustle ── */}
       <div style={{
         display:"grid",
-        gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",
-        gap:8,marginBottom:8,
+        gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))",
+        gap:6,marginBottom:6,
       }}>
 
         {/* Bullshit Radar */}
-        <div style={CARD}>
+        <div style={CARD_COMPACT}>
           <div style={LBL}>Bullshit Radar</div>
           {radar.total_analysed > 0 ? (
             <>
@@ -466,21 +556,21 @@ export default function Lab() {
         </div>
 
         {/* Fear & Greed */}
-        <div style={CARD}>
+        <div style={CARD_COMPACT}>
           <div style={LBL}>Fear & Greed Index</div>
           <FGGauge value={fg.value} classification={fg.classification} direction={fg.direction}/>
         </div>
 
         {/* Side Hustle: Mind Snapshot */}
-        <div style={CARD}>
+        <div style={CARD_COMPACT}>
           <div style={LBL}>Side Hustle</div>
-          <div style={{textAlign:"center",padding:"8px 0"}}>
-            <div style={{fontSize:22,fontWeight:800,color:"#8b5cf6"}}>{level}</div>
-            <div style={{fontSize:12,color:"var(--text-muted)",marginTop:2}}>
+          <div style={{textAlign:"center",padding:"4px 0"}}>
+            <div style={{fontSize:20,fontWeight:800,color:"#8b5cf6"}}>{level}</div>
+            <div style={{fontSize:11,color:"var(--text-muted)",marginTop:2}}>
               Score: <b style={{color:"var(--text)"}}>{evoScore}</b>/1000
             </div>
           </div>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text-muted)",marginTop:4,flexWrap:"wrap",gap:4}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text-muted)",marginTop:3,flexWrap:"wrap",gap:4}}>
             <span>Sentiment: <b style={{color:"var(--text)"}}>{(radar.crowd_heat||"—").replace(/_/g," ")}</b></span>
             <span>Analysed: <b style={{color:"var(--text)"}}>{radar.total_analysed||0}</b></span>
           </div>
@@ -488,8 +578,9 @@ export default function Lab() {
       </div>
 
       {/* ── System Identity + Lifetime Portfolio ── */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",gap:8,marginBottom:8}}>
-        <div style={CARD}>
+      <Collapsible title="System Identity & Portfolio" defaultOpen={false} forceOpen={globalCollapse}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))",gap:6}}>
+        <div>
           <div style={LBL}>System Identity</div>
           {identity.warming_up ? (
             <WarmUp text="Identity forming…" sub="Cycles and trades build identity over time."/>
@@ -509,7 +600,7 @@ export default function Lab() {
             </div>
           )}
         </div>
-        <div style={CARD}>
+        <div>
           <div style={LBL}>Lifetime Portfolio</div>
           {ltPortfolio.warming_up ? (
             <WarmUp text="Portfolio initializing…" sub="Financial state persists across upgrades."/>
@@ -532,9 +623,11 @@ export default function Lab() {
           )}
         </div>
       </div>
+      </Collapsible>
 
       {/* ── Belief vs Reality ── */}
-      <div style={{...CARD,borderLeft:`3px solid ${crowdComp.alignment==="aligned"?"#22c55e":crowdComp.alignment==="diverging"?"#f59e0b":"var(--border)"}`}}>
+      <Collapsible title="Belief vs Reality" badge={crowdComp.alignment ? `(${crowdComp.alignment})` : ""} defaultOpen={true} forceOpen={globalCollapse}>
+      <div style={{borderLeft:`3px solid ${crowdComp.alignment==="aligned"?"#22c55e":crowdComp.alignment==="diverging"?"#f59e0b":"var(--border)"}`,paddingLeft:10}}>
         <div style={{...LBL,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <span>Belief vs Reality</span>
           {crowd.data_source && <span style={{fontSize:8,color:"var(--text-muted)",fontWeight:400,textTransform:"none"}}>{crowd.data_source}</span>}
@@ -619,16 +712,18 @@ export default function Lab() {
           </>
         )}
       </div>
+      </Collapsible>
 
       {/* ── 2-col → stacks on narrow screens ── */}
+      <Collapsible title="Live Feed & News" badge={`${feed.length} events`} defaultOpen={true} forceOpen={globalCollapse}>
       <div style={{
         display:"grid",
-        gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))",
-        gap:8,
+        gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",
+        gap:6,
       }}>
 
         {/* Live Mind Feed */}
-        <div style={{...CARD,maxHeight:480,overflowY:"auto"}}>
+        <div style={{maxHeight:400,overflowY:"auto"}}>
           <div style={{...LBL,display:"flex",justifyContent:"space-between"}}>
             <span>Live Mind Feed</span>
             <span style={{fontWeight:400}}>{feed.length} events</span>
@@ -644,7 +739,7 @@ export default function Lab() {
         {/* Right: Interesting + Rejected */}
         <div>
           {/* Interesting Now */}
-          <div style={{...CARD,maxHeight:230,overflowY:"auto"}}>
+          <div style={{...CARD_COMPACT,maxHeight:220,overflowY:"auto"}}>
             <div style={{...LBL,display:"flex",justifyContent:"space-between"}}>
               <span>Interesting Now</span>
               <span style={{fontWeight:400,color:"#22c55e"}}>{interesting.length}</span>
@@ -658,7 +753,7 @@ export default function Lab() {
           </div>
 
           {/* Rejected Today */}
-          <div style={{...CARD,maxHeight:230,overflowY:"auto"}}>
+          <div style={{...CARD_COMPACT,maxHeight:220,overflowY:"auto"}}>
             <div style={{...LBL,display:"flex",justifyContent:"space-between"}}>
               <span>Rejected Today</span>
               <span style={{fontWeight:400,color:"#6b7280"}}>{rejected.length}</span>
@@ -680,16 +775,18 @@ export default function Lab() {
           </div>
         </div>
       </div>
+      </Collapsible>
 
       {/* ── Chunk 2: Personality + Session Intent ── */}
+      <Collapsible title="Personality & Intent" defaultOpen={false} forceOpen={globalCollapse}>
       <div style={{
         display:"grid",
-        gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",
-        gap:8,marginTop:8,
+        gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))",
+        gap:6,
       }}>
 
         {/* Personality Card */}
-        <div style={CARD}>
+        <div>
           <div style={LBL}>Personality</div>
           {personality.warming_up || !pDominant ? (
             <WarmUp
@@ -718,7 +815,7 @@ export default function Lab() {
         </div>
 
         {/* Session Intent Card */}
-        <div style={{...CARD,borderLeft:`3px solid ${intent.color||"var(--border)"}`}}>
+        <div style={{borderLeft:`3px solid ${intent.color||"var(--border)"}`,paddingLeft:10}}>
           <div style={LBL}>Session Intent</div>
           {intent.warming_up ? (
             <WarmUp
@@ -753,16 +850,18 @@ export default function Lab() {
           )}
         </div>
       </div>
+      </Collapsible>
 
       {/* ── Milestones + Lifetime ── */}
+      <Collapsible title="Milestones & Lifetime" badge={milestones.length > 0 ? `${milestones.length} milestones` : ""} defaultOpen={false} forceOpen={globalCollapse}>
       <div style={{
         display:"grid",
-        gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",
-        gap:8,marginTop:8,
+        gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))",
+        gap:6,
       }}>
 
         {/* Milestones Timeline */}
-        <div style={{...CARD,maxHeight:320,overflowY:"auto"}}>
+        <div style={{maxHeight:280,overflowY:"auto"}}>
           <div style={{...LBL,display:"flex",justifyContent:"space-between"}}>
             <span>Milestones</span>
             <span style={{fontWeight:400}}>{milestones.length}</span>
@@ -791,7 +890,7 @@ export default function Lab() {
         </div>
 
         {/* Lifetime Stats */}
-        <div style={CARD}>
+        <div>
           <div style={LBL}>Lifetime</div>
           {!lifetime.total_trades ? (
             <WarmUp
@@ -817,18 +916,20 @@ export default function Lab() {
           )}
         </div>
       </div>
+      </Collapsible>
 
       {/* ══════════ Chunk 3: Truth Validation + Deep Reflection ══════════ */}
 
       {/* ── Context Summary + Journal ── */}
+      <Collapsible title="Context & Journal" defaultOpen={false} forceOpen={globalCollapse}>
       <div style={{
         display:"grid",
-        gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))",
-        gap:8,marginTop:8,
+        gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",
+        gap:6,
       }}>
 
         {/* Context Summary */}
-        <div style={CARD}>
+        <div>
           <div style={LBL}>Daily Context Summary</div>
           {ctxSummary.warming_up ? (
             <WarmUp
@@ -876,7 +977,7 @@ export default function Lab() {
         </div>
 
         {/* Journal */}
-        <div style={CARD}>
+        <div>
           <div style={LBL}>Daily Journal</div>
           {journalToday.warming_up ? (
             <WarmUp
@@ -920,16 +1021,18 @@ export default function Lab() {
           )}
         </div>
       </div>
+      </Collapsible>
 
       {/* ── Truth Reviews + Action Reflections ── */}
+      <Collapsible title="Truth Validation & Reflections" badge={truthStats.completed > 0 ? `${truthStats.accuracy_pct}% accuracy` : ""} defaultOpen={false} forceOpen={globalCollapse}>
       <div style={{
         display:"grid",
-        gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))",
-        gap:8,marginTop:8,
+        gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))",
+        gap:6,
       }}>
 
         {/* Truth Reviews */}
-        <div style={{...CARD,maxHeight:380,overflowY:"auto"}}>
+        <div style={{maxHeight:340,overflowY:"auto"}}>
           <div style={{...LBL,display:"flex",justifyContent:"space-between"}}>
             <span>Truth Validation</span>
             {truthStats.completed > 0 && (
@@ -975,7 +1078,7 @@ export default function Lab() {
         </div>
 
         {/* Action Reflections */}
-        <div style={{...CARD,maxHeight:380,overflowY:"auto"}}>
+        <div style={{maxHeight:340,overflowY:"auto"}}>
           <div style={{...LBL,display:"flex",justifyContent:"space-between"}}>
             <span>Trade Reflections</span>
             {reflStats.total > 0 && (
@@ -1024,9 +1127,11 @@ export default function Lab() {
           )}
         </div>
       </div>
+      </Collapsible>
 
       {/* ── Replay Timeline ── */}
-      <div style={{...CARD,marginTop:8,maxHeight:420,overflowY:"auto"}}>
+      <Collapsible title="Session Replay" badge={`${replayTL.length} events`} defaultOpen={false} forceOpen={globalCollapse}>
+      <div style={{maxHeight:360,overflowY:"auto"}}>
         <div style={{...LBL,display:"flex",justifyContent:"space-between"}}>
           <span>Session Replay</span>
           <span style={{fontWeight:400}}>{replayTL.length} events</span>
@@ -1063,6 +1168,7 @@ export default function Lab() {
           </div>
         )}
       </div>
+      </Collapsible>
     </>
   );
 }

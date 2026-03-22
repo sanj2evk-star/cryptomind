@@ -4,6 +4,118 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.5.3b — Stabilization Patch (Behavior + News + UX Hardening)
+**Date:** 2026-03-22
+
+**What changed:**
+
+### 1. Activity Clamp — Anti-Overtrading Drift (`multi_strategy.py`)
+- Rolling 50-cycle trade window: tracks trades in last 50 cycles
+- When trades ≥ 13 in window → activity clamp activates:
+  - Edge filter score threshold raised by +4 points
+  - Probe cooldown extended by 25%
+  - Strategy cooldown multiplied by 1.3×
+- Prevents quiet overactivity after over-filtering fixes
+- State exposed in get_leaderboard: `activity_clamp`, `trades_last_window`
+
+### 2. Strategy Bias — Minimum Evidence Gate (`multi_strategy.py`)
+- Changed: BIAS_MIN_EVIDENCE_TRADES from 8 → 12
+- Added blended win rate: 70% recent + 30% lifetime (was 100% recent)
+- Prevents early lucky streaks from creating false "hero strategies"
+- Penalty no longer requires 3+ recent PnL entries when lifetime data available
+
+### 3. Source Influence Cap (`news_classifier.py`)
+- Source contribution to composite_quality capped at 60% of total score
+- If source would dominate, excess is redistributed to content weight
+- Verdict logic tightened: source alone NEVER promotes a signal
+  - Noise→watch upgrade now requires `_has_content_signal` (bull/bear/high_impact)
+  - Hype→watch upgrade now requires `_has_content_signal`
+  - Weak+short→watch upgrade now requires `_has_content_signal`
+
+### 4. Uncertainty Flag (`news_classifier.py`)
+- New field in classify() output: `uncertainty_flag: True/False`
+- Set True when:
+  - Conflicting strong signals (≥2 bullish AND ≥2 bearish)
+  - Borderline scores near classification thresholds + mixed signals
+  - Low content confidence (content_trust < 0.4)
+  - Both noise and hype indicators present on a relevant headline
+  - Verdict is "unclear"
+- Exposed for future learning layers to use
+
+### 5. Global Collapse Control (`Lab.jsx`, `Mind.jsx`)
+- "Expand All" / "Collapse All" buttons added to both pages
+- Lab: in sticky summary bar, controls all 8 collapsible sections
+- Mind: in sticky header, controls overview tab sections (Radar/Level, Learning, Patterns, Evolution, Insights)
+- Collapsible component updated with `forceOpen` prop for external control
+- Override auto-resets after 50ms so individual toggles still work
+
+**Execution logic NOT touched:** ✓
+- No changes to decision_engine core logic
+- No changes to portfolio logic
+- No changes to execution paths (BUY/SELL/HOLD flow unchanged)
+- All changes are threshold adjustments, output fields, and UI components
+
+**No DB changes. No API changes. No new modules.**
+
+**Build passes:** ✓ Python compile + Vite frontend build clean.
+
+---
+
+## v7.5.3 — Behavior Balance + News Quality + iPad UX
+**Date:** 2026-03-22
+
+**What changed:**
+
+### Part 1: Behavior Balance Patch (`multi_strategy.py`)
+- **Over-filtering detector**: Tracks signals seen vs trades taken. When ≥25 signals and 0 trades, flags over-filtering and relaxes edge filter thresholds by 3 points / 0.02 confidence
+- **Confidence → Action mapping**: Explicit low/medium/high thresholds. Medium confidence converts BUY to probe instead of blocking entirely
+- **Minimum participation guard**: Reduced anti-paralysis threshold from 60→40 cycles
+- **Sleepy market probe-instead-of-block**: SLEEPING market with score <55 converts to probe instead of HOLD; score <62 becomes probe at 50% size
+- **Adaptation unfreeze**: Micro-adjustments every 30 cycles — rewards strategies with >60% win rate, penalizes <35%. Prevents allocation from freezing in suboptimal state
+- **Strategy bias accumulation**: Gradual allocation shifts toward consistent performers, bounded by 2% max shift per cycle
+
+### Part 2: News Quality Upgrade (`news_classifier.py`)
+- **Source quality tiers**: Tier 1 (Reuters, Bloomberg, SEC, etc.) = 0.90, Tier 2 (CoinDesk, CoinTelegraph, etc.) = 0.70, Tier 3 (aggregators) = 0.45, Unknown = 0.25
+- **Blended trust scoring**: `content_trust × 0.6 + source_quality × 0.4`
+- **Composite quality score**: `impact_strength × 0.4 + source_quality × 0.35 + novelty × 0.25`
+- **Noise calibration**: Tier 1/2 sources with relevance get upgraded from noise → watch. Tier 1 + high hype but relevant → watch instead of reject
+- **New fields in classify() return**: `source_quality`, `source_tier`, `composite_quality`
+- Expected distribution: 60-80% noise, 10-25% watch, 5-15% interesting
+
+### Part 3: iPad UX Optimization (`Lab.jsx`, `Mind.jsx`)
+- **Lab page — Collapsible sections**: All major sections (Identity/Portfolio, Belief vs Reality, Live Feed, Personality/Intent, Milestones/Lifetime, Truth/Reflections, Session Replay) wrapped in touch-friendly collapsible panels. Default: only essential sections open
+- **Lab page — Sticky summary bar**: Always-visible bar with mood, clarity, noise ratio, F&G, and evolution level
+- **Lab page — Compact cards**: Reduced padding, smaller fonts, tighter spacing. Grid columns responsive with `minmax(220px, 1fr)` for 2-column iPad landscape
+- **Mind page — Sticky header**: Level, confidence, and key stats always visible
+- **Mind page — Mind Insights panel**: Quick-glance indicators (win rate, runtime, cycles, patterns) at bottom of overview tab
+- **Mind page — Responsive grids**: Overview grid `minmax(280px, 1fr)`, skills grid `minmax(220px, 1fr)` for proper 2-column on iPad
+- **Mind page — Compact hero card**: Smaller icon, inline stats, wrapping layout for narrow screens
+
+### Version & Config
+- `session_manager.py`: APP_VERSION updated to "7.5.3"
+
+### Architecture
+- All changes are additive — no existing behavior removed
+- Observer isolation preserved — all new code is read-only against trading state
+- Collapsible sections use `useState` — no external dependencies
+- Adaptation unfreeze bounded by MIN_ALLOC_PCT/MAX_ALLOC_PCT — cannot monopolize
+
+**What's right:**
+- Over-filtering detection gives the system self-awareness about its participation rate
+- Source quality tiers make news classification honest about where information comes from
+- iPad UX reduces scroll depth by ~60% with collapsible sections
+- Sticky bars keep key information visible without scrolling
+
+**What could be improved:**
+- Source quality could learn from truth validation results (dynamic tier adjustment)
+- Adaptation unfreeze could use exponential decay for bias scores
+- iPad UX could benefit from gesture-based section reordering
+- Over-filtering detector could track per-strategy filtering rates
+
+**Deployment:** Pending user approval
+
+---
+
 ## v7.5.2 — Review Export / Black Box System
 **Date:** 2026-03-22
 

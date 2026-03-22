@@ -93,6 +93,54 @@ HOLD_LOOP_BREAKER_CYCLES = 20  # force micro-probe after 20 consecutive HOLDs
 HOLD_LOOP_PROBE_SIZE = 0.10    # 10% of normal size for forced probe
 
 # ═══════════════════════════════════════════════════════════════════════════
+# OVER-FILTERING DETECTOR — detect and respond to excessive filtering
+# ═══════════════════════════════════════════════════════════════════════════
+OVERFILTER_SIGNAL_THRESHOLD = 25  # signals seen before flagging
+OVERFILTER_RELAX_SCORE = 3        # relax edge filter by this many points
+OVERFILTER_RELAX_CONF = 0.02      # relax confidence by this amount
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MINIMUM PARTICIPATION GUARD — ensure system participates within N cycles
+# ═══════════════════════════════════════════════════════════════════════════
+MIN_PARTICIPATION_CYCLES = 40     # reduced from 60 in anti-paralysis
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CONFIDENCE → ACTION MAPPING — explicit confidence-based action types
+# ═══════════════════════════════════════════════════════════════════════════
+CONFIDENCE_MAP = {
+    "low":    {"max_action": "hold",  "threshold": 0.10},
+    "medium": {"max_action": "probe", "threshold": 0.20},
+    "high":   {"max_action": "full",  "threshold": 0.35},
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ADAPTATION UNFREEZE — allow micro-adjustments even during stable periods
+# ═══════════════════════════════════════════════════════════════════════════
+ADAPT_UNFREEZE_INTERVAL = 30     # cycles between micro-adjustments
+ADAPT_MICRO_ADJUST_PCT = 0.01   # 1% allocation shift per adjustment
+ADAPT_MIN_TRADES_FOR_BIAS = 8   # need 8+ trades to compute strategy bias
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STRATEGY BIAS — gradual allocation toward consistent performers
+# ═══════════════════════════════════════════════════════════════════════════
+BIAS_REWARD_THRESHOLD = 60.0      # win rate % above which strategy gets rewarded
+BIAS_PENALTY_THRESHOLD = 35.0     # win rate % below which strategy gets penalized
+BIAS_MAX_SHIFT_PER_CYCLE = 0.02   # max 2% allocation shift per bias cycle
+BIAS_CONSISTENCY_WINDOW = 10      # last N trades for consistency check
+BIAS_MIN_EVIDENCE_TRADES = 12     # minimum trades before bias kicks in
+BIAS_RECENT_WEIGHT = 0.70         # 70% recent + 30% lifetime blend
+BIAS_LIFETIME_WEIGHT = 0.30
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ACTIVITY CLAMP — prevent overtrading drift after over-filtering fixes
+# ═══════════════════════════════════════════════════════════════════════════
+ACTIVITY_CLAMP_WINDOW = 50          # rolling window in cycles
+ACTIVITY_CLAMP_THRESHOLD = 13      # trades in window to trigger clamp
+ACTIVITY_CLAMP_SCORE_BOOST = 4     # raise edge filter score by this
+ACTIVITY_CLAMP_PROBE_REDUCE = 0.25 # reduce probe frequency by 25%
+ACTIVITY_CLAMP_COOLDOWN_MULT = 1.3 # multiply cooldown by this factor
+
+# ═══════════════════════════════════════════════════════════════════════════
 # RE-ENTRY / STACKING DISCIPLINE
 # ═══════════════════════════════════════════════════════════════════════════
 MAX_BUY_ENTRIES_BEFORE_SELL = 3     # max stacked BUY entries before requiring a SELL
@@ -144,6 +192,19 @@ _last_probe_cycle = -10          # last cycle a probe was allowed
 _probe_trades_count = 0          # total probes fired
 _consecutive_hold_cycles = 0     # for hold-loop breaker
 _blocked_reason_log: list[str] = []  # recent blocked reasons for debug
+
+# Over-filtering detection state
+_signals_seen_count = 0        # signals observed this session (scores > 45)
+_over_filtering_flag = False   # currently over-filtering?
+_over_filtering_relaxed = False  # have we relaxed thresholds?
+
+# Adaptation unfreeze state
+_last_adapt_cycle = 0          # last cycle we ran micro-adjustment
+_strategy_bias_scores: dict[str, float] = {}  # accumulated bias per strategy
+
+# Activity clamp state
+_recent_trade_cycles: list[int] = []  # cycle numbers of recent trades (rolling window)
+_activity_clamp_active = False         # is the activity clamp currently engaged?
 
 
 def _log_event(event: str, **kwargs):
@@ -1104,7 +1165,7 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     idle_cycles = _cycle_count - _last_any_trade_cycle
     if (action == "HOLD" and btc < 0.0001 and available_cash > 0.3
             and _probe_this_cycle != _cycle_count and not regime_blocked
-            and idle_cycles >= 60):
+            and idle_cycles >= MIN_PARTICIPATION_CYCLES):
         # Relaxed but still valid conditions
         ap_price_above = ema_short > ema_long
         ap_rsi_ok = 55 <= rsi <= 68
@@ -1168,28 +1229,63 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
         reasons.append(f"Low confidence ({confidence:.0%})")
 
     # ══════════════════════════════════════════════════════════
+    # CONFIDENCE → ACTION MAPPING — determines trade type from confidence
+    # ══════════════════════════════════════════════════════════
+    conf_level = "low"
+    if confidence >= CONFIDENCE_MAP["high"]["threshold"]:
+        conf_level = "high"
+    elif confidence >= CONFIDENCE_MAP["medium"]["threshold"]:
+        conf_level = "medium"
+
+    # Medium confidence → convert to probe (not block)
+    if action == "BUY" and not is_probe and conf_level == "medium":
+        is_probe = True
+        entry_met = True
+        reasons.append(f"Confidence mapping: {confidence:.0%} → probe (medium)")
+
+    # ══════════════════════════════════════════════════════════
     # MINIMUM EDGE FILTER — reject marginal trades in poor conditions
     # Probes have their own guardrails so they bypass this
     # ══════════════════════════════════════════════════════════
     if action != "HOLD" and not is_probe:
         edge_req = MIN_EDGE_BY_REGIME.get(regime, MIN_EDGE_BY_REGIME["SLEEPING"])
+        eff_min_score = edge_req["min_score"]
+        eff_min_conf = edge_req["min_confidence"]
+
+        # Over-filtering relaxation: slightly lower thresholds when over-filtering
+        if _over_filtering_flag and _over_filtering_relaxed:
+            eff_min_score = max(42, eff_min_score - OVERFILTER_RELAX_SCORE)
+            eff_min_conf = max(0.02, eff_min_conf - OVERFILTER_RELAX_CONF)
+
+        # Activity clamp: raise thresholds when overtrading detected
+        if _activity_clamp_active:
+            eff_min_score += ACTIVITY_CLAMP_SCORE_BOOST
+            eff_min_conf += 0.02
+
         edge_blocked = False
-        if action == "BUY" and total_score < edge_req["min_score"]:
+        if action == "BUY" and total_score < eff_min_score:
             edge_blocked = True
-            edge_block_reason = f"Edge filter: score {total_score:.0f} < {edge_req['min_score']} for {regime}"
-        elif action != "HOLD" and confidence < edge_req["min_confidence"]:
+            edge_block_reason = f"Edge filter: score {total_score:.0f} < {eff_min_score} for {regime}"
+        elif action != "HOLD" and confidence < eff_min_conf:
             edge_blocked = True
-            edge_block_reason = f"Edge filter: conf {confidence:.0%} < {edge_req['min_confidence']:.0%} for {regime}"
+            edge_block_reason = f"Edge filter: conf {confidence:.0%} < {eff_min_conf:.0%} for {regime}"
 
         if edge_blocked:
             # ── PROBE LAYER: controlled exploration bypasses edge filter ──
             # Allows participation when signal exists but doesn't meet full threshold
             exposure = _get_exposure_pct(price)
-            probe_cooldown_ok = (_cycle_count - _last_probe_cycle) >= PROBE_COOLDOWN_CYCLES
+            eff_probe_cooldown = int(PROBE_COOLDOWN_CYCLES * (1 + ACTIVITY_CLAMP_PROBE_REDUCE)) if _activity_clamp_active else PROBE_COOLDOWN_CYCLES
+            probe_cooldown_ok = (_cycle_count - _last_probe_cycle) >= eff_probe_cooldown
+            probe_min = PROBE_MIN_SCORE
+            probe_conf = PROBE_MIN_CONFIDENCE
+            # Further relax probe thresholds when over-filtering
+            if _over_filtering_flag:
+                probe_min = max(44, probe_min - 2)
+                probe_conf = max(0.03, probe_conf - 0.01)
             probe_conditions = (
                 action == "BUY"
-                and total_score >= PROBE_MIN_SCORE
-                and confidence >= PROBE_MIN_CONFIDENCE
+                and total_score >= probe_min
+                and confidence >= probe_conf
                 and exposure < PROBE_MAX_EXPOSURE * 100
                 and probe_cooldown_ok
                 and _probe_this_cycle != _cycle_count
@@ -1198,7 +1294,8 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
                 is_probe = True
                 entry_met = True
                 reasons.append(f"Probe layer: score={total_score:.0f} conf={confidence:.0%} "
-                              f"(below edge but above probe threshold)")
+                              f"(below edge but above probe threshold)"
+                              + (" [over-filter relax]" if _over_filtering_flag else ""))
             else:
                 action = "HOLD"
                 reasons.append(edge_block_reason)
@@ -1212,11 +1309,12 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
     # Store entry condition status
     s["entry_condition_met"] = entry_met
 
-    # Cooldown
+    # Cooldown (extended when activity clamp active)
+    eff_cooldown = profile["cooldown"] * ACTIVITY_CLAMP_COOLDOWN_MULT if _activity_clamp_active else profile["cooldown"]
     since = time.time() - s["last_trade_time"]
-    if action != "HOLD" and since < profile["cooldown"]:
+    if action != "HOLD" and since < eff_cooldown:
         action = "HOLD"
-        reasons.append(f"Cooldown ({int(profile['cooldown'] - since)}s)")
+        reasons.append(f"Cooldown ({int(eff_cooldown - since)}s)" + (" [clamp]" if _activity_clamp_active else ""))
 
     # Rate limit (max trades per minute)
     max_tpm = profile.get("max_trades_per_min", 5)
@@ -1244,13 +1342,18 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
             reasons.append(f"Exposure block: {exp_reason}")
 
     # ══════════════════════════════════════════════════════════
-    # SLEEPY MARKET REDUCTION — reduce frequency + size in SLEEPING
+    # SLEEPY MARKET REDUCTION — reduce size, convert to probe instead of blocking
     # ══════════════════════════════════════════════════════════
     if action == "BUY" and regime == "SLEEPING" and not is_probe:
-        # In sleeping market, require stronger signal for full entries
-        if total_score < 62:
-            action = "HOLD"
-            reasons.append(f"Sleepy filter: score {total_score:.0f} < 62 for SLEEPING full entry")
+        if total_score < 55:
+            # Very weak signal in sleeping market — convert to probe, don't block
+            is_probe = True
+            reasons.append(f"Sleepy → probe: score {total_score:.0f} < 55 in SLEEPING")
+        elif total_score < 62:
+            # Marginal — reduce size by 50%, convert to probe
+            is_probe = True
+            size_multiplier *= 0.5
+            reasons.append(f"Sleepy downgrade: score {total_score:.0f} < 62, probe at 50% size")
         else:
             size_multiplier *= 0.6  # reduce size by 40% in sleeping market
 
@@ -1395,6 +1498,72 @@ def _run_strategy(name: str, indicators: dict, market_state: dict, price: float)
 
 
 # ---------------------------------------------------------------------------
+# Adaptation Unfreeze — micro-adjustments during stable periods
+# ---------------------------------------------------------------------------
+
+def _run_adaptation_unfreeze(price: float):
+    """Allow small allocation adjustments even when the system is stable.
+    Prevents the system from getting frozen in a suboptimal allocation.
+    Runs every ADAPT_UNFREEZE_INTERVAL cycles."""
+    global _last_adapt_cycle, _allocations, _strategy_bias_scores
+
+    if _cycle_count - _last_adapt_cycle < ADAPT_UNFREEZE_INTERVAL:
+        return
+    _last_adapt_cycle = _cycle_count
+
+    # --- Strategy Bias: reward consistent performers, penalize poor ones ---
+    # Minimum evidence gate: require BIAS_MIN_EVIDENCE_TRADES before any bias
+    # Blend: 70% recent win rate + 30% lifetime win rate to avoid lucky-streak heroes
+    adjustments = {}
+    for name, s in _strategies.items():
+        if s["status"] in ("INACTIVE", "PAUSED"):
+            continue
+        p = _get_performance(name, price)
+        if p["trade_count"] < BIAS_MIN_EVIDENCE_TRADES:
+            continue  # not enough evidence — skip entirely
+
+        # Compute recent win rate from last N trades
+        recent_pnl = s["last_10_pnl"][-BIAS_CONSISTENCY_WINDOW:]
+        if not recent_pnl or len(recent_pnl) < 3:
+            continue
+        recent_wins = sum(1 for x in recent_pnl if x > 0)
+        recent_wr = (recent_wins / len(recent_pnl)) * 100
+
+        # Lifetime win rate
+        lifetime_wr = p["win_rate"]  # already in %
+
+        # Blended win rate: 70% recent + 30% lifetime
+        blended_wr = recent_wr * BIAS_RECENT_WEIGHT + lifetime_wr * BIAS_LIFETIME_WEIGHT
+
+        # Reward: high blended win rate → slight allocation boost
+        if blended_wr >= BIAS_REWARD_THRESHOLD and p["drawdown"] < KILL_DRAWDOWN * 0.7:
+            shift = min(BIAS_MAX_SHIFT_PER_CYCLE, ADAPT_MICRO_ADJUST_PCT)
+            adjustments[name] = shift
+            _strategy_bias_scores[name] = _strategy_bias_scores.get(name, 0) + shift
+
+        # Penalty: low blended win rate → slight allocation reduction
+        elif blended_wr <= BIAS_PENALTY_THRESHOLD:
+            shift = -min(BIAS_MAX_SHIFT_PER_CYCLE, ADAPT_MICRO_ADJUST_PCT)
+            adjustments[name] = shift
+            _strategy_bias_scores[name] = _strategy_bias_scores.get(name, 0) + shift
+
+    # Apply adjustments
+    if adjustments:
+        for name, delta in adjustments.items():
+            if name in _allocations:
+                new_alloc = max(MIN_ALLOC_PCT, min(MAX_ALLOC_PCT, _allocations[name] + delta))
+                _allocations[name] = new_alloc
+
+        # Normalize to sum to 1.0
+        alloc_sum = sum(_allocations.values())
+        if alloc_sum > 0:
+            _allocations = {n: v / alloc_sum for n, v in _allocations.items()}
+
+        _log_event("adaptation_unfreeze",
+                   adjustments={n: round(d * 100, 2) for n, d in adjustments.items()})
+
+
+# ---------------------------------------------------------------------------
 # Main Cycle
 # ---------------------------------------------------------------------------
 
@@ -1402,6 +1571,9 @@ def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
     global _cycle_count, _last_market_state, _leaderboard, _prev_volatility, _cycle_trades
     global _market_quality_score, _current_exposure_pct, _blocked_trade_reason
     global _consecutive_hold_cycles, _probe_trades_count, _last_probe_cycle, _last_any_trade_cycle
+    global _signals_seen_count, _over_filtering_flag, _over_filtering_relaxed
+    global _last_adapt_cycle, _strategy_bias_scores
+    global _recent_trade_cycles, _activity_clamp_active
 
     _ensure_initialized()
 
@@ -1431,9 +1603,40 @@ def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
     if len(_blocked_reason_log) > 100:
         _blocked_reason_log[:] = _blocked_reason_log[-100:]
 
+    # ── OVER-FILTERING DETECTOR ──
+    # Track signals seen (score > 45 = meaningful signal was present)
+    rsi_sig = indicators.get("rsi", 50)
+    accel_sig = indicators.get("acceleration", 0)
+    if abs(rsi_sig - 50) > 5 or abs(accel_sig) > 1:
+        _signals_seen_count += 1
+
+    trades_total = sum(s.get("total_trades", 0) for s in _strategies.values()) if _strategies else 0
+    prev_over_filter = _over_filtering_flag
+    if _signals_seen_count >= OVERFILTER_SIGNAL_THRESHOLD and trades_total == 0:
+        _over_filtering_flag = True
+        if not _over_filtering_relaxed:
+            _over_filtering_relaxed = True
+            _log_event("over_filtering_detected",
+                       signals_seen=_signals_seen_count, trades=trades_total)
+    elif trades_total > 0 and _over_filtering_flag:
+        # Reset once we start trading
+        _over_filtering_flag = False
+        _over_filtering_relaxed = False
+        _signals_seen_count = 0
+
+    # ── ACTIVITY CLAMP — detect overtrading drift ──
+    # Prune old entries outside the rolling window
+    cutoff = _cycle_count - ACTIVITY_CLAMP_WINDOW
+    _recent_trade_cycles = [c for c in _recent_trade_cycles if c >= cutoff]
+    _activity_clamp_active = len(_recent_trade_cycles) >= ACTIVITY_CLAMP_THRESHOLD
+
     # Run all strategies
     for name in PROFILES:
         _run_strategy(name, indicators, mkt, price)
+
+    # Record trades from this cycle into activity clamp window
+    if _cycle_trades:
+        _recent_trade_cycles.append(_cycle_count)
 
     # ── HOLD LOOP BREAKER: force micro-probe after prolonged HOLD ──
     if not _cycle_trades:
@@ -1532,9 +1735,10 @@ def run_multi_cycle(price: float = 0, indicators: dict = None) -> dict:
         except Exception:
             pass
 
-    # Auto-switch + kill/revive
+    # Auto-switch + kill/revive + adaptation unfreeze
     _check_auto_switch(price)
     _check_kill_revive(price)
+    _run_adaptation_unfreeze(price)
 
     # Mark primary as LEADING (skip paused/killed)
     for name, s in _strategies.items():
@@ -1794,6 +1998,12 @@ def get_leaderboard() -> dict:
             "cash": round(_portfolio["total_cash"], 4),
             "btc_in_positions": round(sum(s["btc_holdings"] for s in _strategies.values()), 8),
         },
+        "over_filtering": _over_filtering_flag,
+        "signals_seen": _signals_seen_count,
+        "probe_total": _probe_trades_count,
+        "activity_clamp": _activity_clamp_active,
+        "trades_last_window": len(_recent_trade_cycles),
+        "strategy_bias": {n: round(v, 4) for n, v in _strategy_bias_scores.items()} if _strategy_bias_scores else {},
         "allocations": {n: round(v * 100, 1) for n, v in _allocations.items()},
         "event_log": _event_log[-30:][::-1],
         "strategies": {

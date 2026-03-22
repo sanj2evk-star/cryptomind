@@ -3,6 +3,56 @@ import { useApi } from "../hooks/useApi";
 import { fmtLocalTimeShort } from "../hooks/useTime";
 
 // ---------------------------------------------------------------------------
+// Collapsible + Global Collapse Controls (shared pattern with Lab.jsx)
+// ---------------------------------------------------------------------------
+
+function Collapsible({ title, badge, defaultOpen = true, forceOpen = null, children }) {
+  const [localOpen, setLocalOpen] = useState(defaultOpen);
+  const open = forceOpen !== null ? forceOpen : localOpen;
+  return (
+    <div style={{marginBottom:8}}>
+      <button
+        onClick={() => setLocalOpen(p => !p)}
+        style={{
+          display:"flex",justifyContent:"space-between",alignItems:"center",
+          width:"100%",padding:"6px 12px",
+          background:"var(--surface)",border:"1px solid var(--border)",
+          borderRadius:open?"6px 6px 0 0":"6px",cursor:"pointer",
+          fontSize:10,fontWeight:600,color:"var(--text)",
+          textTransform:"uppercase",letterSpacing:0.3,
+          WebkitTapHighlightColor:"transparent",minHeight:32,
+        }}
+      >
+        <span style={{display:"flex",alignItems:"center",gap:6}}>
+          {title}
+          {badge && <span style={{fontSize:9,fontWeight:400,color:"var(--text-muted)",textTransform:"none",letterSpacing:0}}>{badge}</span>}
+        </span>
+        <span style={{fontSize:9,color:"var(--text-muted)"}}>{open?"▾":"▸"}</span>
+      </button>
+      {open && (
+        <div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 6px 6px",padding:"10px 12px",background:"var(--surface)"}}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CollapseControls({ onExpandAll, onCollapseAll }) {
+  const btnStyle = {
+    padding:"3px 8px",borderRadius:4,fontSize:9,fontWeight:600,
+    border:"1px solid var(--border)",background:"var(--surface)",
+    color:"var(--text-muted)",cursor:"pointer",
+  };
+  return (
+    <div style={{display:"flex",gap:3}}>
+      <button style={btnStyle} onClick={onExpandAll}>Expand All</button>
+      <button style={btnStyle} onClick={onCollapseAll}>Collapse All</button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // SVG Icons — clean, monochrome, premium sigils per level
 // ---------------------------------------------------------------------------
 
@@ -236,6 +286,10 @@ export default function MindPage() {
   const { data: historyData } = useApi("/v7/mind/history?limit=50", 60000);
   const { data: patternsData } = useApi("/v7/mind/patterns", 60000);
   const [tab, setTab] = useState("overview");
+  const [globalCollapse, setGlobalCollapse] = useState(null);
+  const expandAll = () => setGlobalCollapse(true);
+  const collapseAll = () => setGlobalCollapse(false);
+  const resetOverride = () => { if (globalCollapse !== null) setTimeout(() => setGlobalCollapse(null), 50); };
 
   const skills = skillsData?.skills || [];
   const feed = lessonsData?.feed || [];
@@ -270,32 +324,57 @@ export default function MindPage() {
     );
   }
 
+  // Mind insights for the side panel
+  const mindInsights = [];
+  if (mind?.system_age?.total_trades > 0) {
+    const wr = mind?.system_age?.win_rate;
+    if (wr != null) mindInsights.push({ label: "Win Rate", value: `${wr.toFixed(0)}%`, color: wr >= 50 ? "#22c55e" : "#ef4444" });
+  }
+  if (mind?.system_age?.total_hours > 0) mindInsights.push({ label: "Runtime", value: `${mind.system_age.total_hours.toFixed(1)}h` });
+  if (mind?.system_age?.total_cycles > 0) mindInsights.push({ label: "Cycles", value: mind.system_age.total_cycles.toLocaleString() });
+  if (patternsData && !patternsData.warming_up) {
+    const pc = (patternsData.insights || []).length;
+    if (pc > 0) mindInsights.push({ label: "Patterns", value: pc, color: "#8b5cf6" });
+  }
+
   return (
-    <div style={{ maxWidth: 900 }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Mind</h1>
+    <div style={{ maxWidth: 960 }}>
+      {/* Header — sticky on iPad */}
+      <div style={{
+        position: "sticky", top: 0, zIndex: 20,
+        display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
+        padding: "8px 0", background: "var(--bg)",
+        flexWrap: "wrap",
+      }}>
+        <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Mind</h1>
         <span style={{
-          padding: "3px 10px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+          padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
           background: `${mindState.color}18`, color: mindState.color,
           border: `1px solid ${mindState.color}33`,
         }}>{mindState.label}</span>
-        {/* Confidence badge */}
         <span style={{
-          padding: "3px 10px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+          padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
           background: `${confColor}18`, color: confColor,
           border: `1px solid ${confColor}33`,
-        }}>Confidence: {confidence.label}</span>
+        }}>{confidence.label}</span>
+        {/* Mini indicators in header */}
+        <div style={{ display: "flex", gap: 8, fontSize: 10, color: "var(--text-muted)", marginLeft: "auto", flexWrap: "wrap", alignItems: "center" }}>
+          <span>Score: <b style={{ color: "#8b5cf6" }}>{evolutionScore}</b></span>
+          <span>Level: <b style={{ color: "#8b5cf6" }}>{mindLevel.level}</b></span>
+          {mind?.system_age?.total_trades > 0 && <span>Trades: <b>{mind.system_age.total_trades}</b></span>}
+          <CollapseControls onExpandAll={()=>{expandAll();resetOverride()}} onCollapseAll={()=>{collapseAll();resetOverride()}}/>
+        </div>
       </div>
 
-      {/* Hero Card */}
+      {/* Hero Card — compact for iPad */}
       <div style={{
-        padding: "20px 24px", background: "var(--surface)", border: "1px solid var(--border)",
-        borderRadius: 10, marginBottom: 12, display: "flex", alignItems: "center", gap: 24,
+        padding: "14px 18px", background: "var(--surface)", border: "1px solid var(--border)",
+        borderRadius: 10, marginBottom: 10, display: "flex", alignItems: "center", gap: 16,
+        flexWrap: "wrap",
       }}>
         {/* Level Icon */}
         <div style={{
-          width: 64, height: 64, borderRadius: 12, display: "flex", alignItems: "center",
+          width: 52, height: 52, borderRadius: 10, display: "flex", alignItems: "center",
           justifyContent: "center", background: "var(--bg)", border: "1px solid var(--border)",
           color: "#8b5cf6", flexShrink: 0,
         }}>
@@ -303,20 +382,12 @@ export default function MindPage() {
         </div>
 
         {/* Score + Level */}
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 28, fontWeight: 700 }}>{evolutionScore}</span>
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>/ 1000</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: "#8b5cf6" }}>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 3 }}>
+            <span style={{ fontSize: 24, fontWeight: 700 }}>{evolutionScore}</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>/ 1000</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#8b5cf6", marginLeft: 4 }}>
               {mindLevel.level}
-            </span>
-            <span style={{
-              fontSize: 10, padding: "1px 8px", borderRadius: 3,
-              background: `${confColor}18`, color: confColor, fontWeight: 600,
-            }}>
-              {confidence.label} ({confidence.score}%)
             </span>
           </div>
           <ProgressBar
@@ -324,35 +395,22 @@ export default function MindPage() {
             max={100}
             label={mindLevel.next_level ? `${mindLevel.points_to_next} pts to ${mindLevel.next_level}` : "Maximum level reached"}
           />
-          {/* Evidence Strength bar */}
-          <div style={{ marginTop: 6 }}>
+          <div style={{ marginTop: 4 }}>
             <ProgressBar
               value={evidenceStrength.pct}
               max={100}
-              label={`Evidence Strength: ${evidenceStrength.pct}%`}
+              label={`Evidence: ${evidenceStrength.pct}%`}
               color={confColor}
             />
           </div>
         </div>
 
-        {/* Quick Stats */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, minWidth: 140 }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "var(--text-muted)" }}>Cycles</span>
-            <span style={{ fontWeight: 600 }}>{(mind?.system_age?.total_cycles || 0).toLocaleString()}</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "var(--text-muted)" }}>Trades</span>
-            <span style={{ fontWeight: 600 }}>{mind?.system_age?.total_trades || 0}</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "var(--text-muted)" }}>Hours</span>
-            <span style={{ fontWeight: 600 }}>{(mind?.system_age?.total_hours || 0).toFixed(1)}</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "var(--text-muted)" }}>Version</span>
-            <span style={{ fontWeight: 600, color: "#8b5cf6" }}>v{mind?.system_age?.version || "?"}</span>
-          </div>
+        {/* Quick Stats — inline on wide, wrap on narrow */}
+        <div style={{ display: "flex", gap: 12, fontSize: 10, color: "var(--text-muted)", flexWrap: "wrap" }}>
+          <div><div style={{ fontWeight: 600, color: "var(--text)", fontSize: 13 }}>{(mind?.system_age?.total_cycles || 0).toLocaleString()}</div>cycles</div>
+          <div><div style={{ fontWeight: 600, color: "var(--text)", fontSize: 13 }}>{mind?.system_age?.total_trades || 0}</div>trades</div>
+          <div><div style={{ fontWeight: 600, color: "var(--text)", fontSize: 13 }}>{(mind?.system_age?.total_hours || 0).toFixed(1)}</div>hours</div>
+          <div><div style={{ fontWeight: 600, color: "#8b5cf6", fontSize: 13 }}>v{mind?.system_age?.version || "?"}</div>version</div>
         </div>
       </div>
 
@@ -376,68 +434,53 @@ export default function MindPage() {
 
       {/* Tab Content */}
       {tab === "overview" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {/* Radar Chart */}
-          <div style={{
-            padding: "16px", background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 8,
-          }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>
-              Skill Radar
-            </div>
-            {skills.length > 0 ? <RadarChart skills={skills} /> : (
-              <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 12 }}>
-                Collecting data...
-              </div>
-            )}
-          </div>
-
-          {/* Right column: Why This Level + What's Needed + Lessons */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* Why This Level */}
-            <div style={{
-              padding: "12px 16px", background: "var(--surface)", border: "1px solid var(--border)",
-              borderRadius: 8,
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>
-                Why {mindLevel.level}?
-              </div>
-              {whyLevel.length > 0 ? whyLevel.map((reason, i) => (
-                <div key={i} style={{ fontSize: 11, color: "var(--text)", padding: "2px 0", display: "flex", gap: 6, alignItems: "flex-start" }}>
-                  <span style={{ color: "var(--text-muted)", fontSize: 8, marginTop: 3 }}>•</span>
-                  <span>{reason}</span>
-                </div>
-              )) : (
-                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Analyzing system state...</div>
-              )}
-            </div>
-
-            {/* What's Needed for Next Level */}
-            {whatNeeded.length > 0 && mindLevel.next_level && (
-              <div style={{
-                padding: "12px 16px", background: "var(--surface)", border: "1px solid var(--border)",
-                borderRadius: 8, borderLeft: "3px solid #8b5cf6",
-              }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>
-                  To reach {mindLevel.next_level}
-                </div>
-                {whatNeeded.map((req, i) => (
-                  <div key={i} style={{ fontSize: 11, color: "var(--text)", padding: "2px 0", display: "flex", gap: 6, alignItems: "flex-start" }}>
-                    <span style={{ color: "#8b5cf6", fontSize: 10, marginTop: 1 }}>→</span>
-                    <span>{req}</span>
+        <div>
+          {/* Skill Radar + Level Explanation */}
+          <Collapsible title="Skill Radar & Level" defaultOpen={true} forceOpen={globalCollapse}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 10 }}>
+              <div>
+                {skills.length > 0 ? <RadarChart skills={skills} /> : (
+                  <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 12 }}>
+                    Collecting data...
                   </div>
-                ))}
+                )}
               </div>
-            )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* Why This Level */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>
+                    Why {mindLevel.level}?
+                  </div>
+                  {whyLevel.length > 0 ? whyLevel.map((reason, i) => (
+                    <div key={i} style={{ fontSize: 11, color: "var(--text)", padding: "2px 0", display: "flex", gap: 6, alignItems: "flex-start" }}>
+                      <span style={{ color: "var(--text-muted)", fontSize: 8, marginTop: 3 }}>•</span>
+                      <span>{reason}</span>
+                    </div>
+                  )) : (
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Analyzing system state...</div>
+                  )}
+                </div>
+                {/* What's Needed for Next Level */}
+                {whatNeeded.length > 0 && mindLevel.next_level && (
+                  <div style={{ borderLeft: "3px solid #8b5cf6", paddingLeft: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>
+                      To reach {mindLevel.next_level}
+                    </div>
+                    {whatNeeded.map((req, i) => (
+                      <div key={i} style={{ fontSize: 11, color: "var(--text)", padding: "2px 0", display: "flex", gap: 6, alignItems: "flex-start" }}>
+                        <span style={{ color: "#8b5cf6", fontSize: 10, marginTop: 1 }}>→</span>
+                        <span>{req}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </Collapsible>
 
-            {/* Recent Lessons (compact) */}
-            <div style={{
-              padding: "12px 16px", background: "var(--surface)", border: "1px solid var(--border)",
-              borderRadius: 8, maxHeight: 180, overflowY: "auto", flex: 1,
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>
-                Recent Learning
-              </div>
+          {/* Recent Learning */}
+          <Collapsible title="Recent Learning" badge={feed.length > 0 ? `${feed.length} items` : ""} defaultOpen={true} forceOpen={globalCollapse}>
+            <div style={{ maxHeight: 200, overflowY: "auto" }}>
               {feed.length > 0 ? feed.slice(0, 5).map((item, i) => (
                 <FeedItem key={i} item={item} />
               )) : (
@@ -446,54 +489,57 @@ export default function MindPage() {
                 </div>
               )}
             </div>
-          </div>
+          </Collapsible>
 
-          {/* Recurring Patterns (full width) */}
+          {/* Recurring Patterns */}
           {patternsData && !patternsData.warming_up && (patternsData.insights || []).length > 0 && (
-            <div style={{
-              gridColumn: "1 / -1", padding: "14px 16px", background: "var(--surface)",
-              border: "1px solid var(--border)", borderRadius: 8, borderLeft: "3px solid #8b5cf6",
-            }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>
-                Recurring Patterns
+            <Collapsible title="Recurring Patterns" badge={`${(patternsData.insights || []).length} found`} defaultOpen={true} forceOpen={globalCollapse}>
+              <div style={{ borderLeft: "3px solid #8b5cf6", paddingLeft: 10 }}>
+                {(patternsData.insights || []).slice(0, 3).map((ins, i) => {
+                  const confColors = { low: "#6b7280", medium: "#eab308", high: "#22c55e" };
+                  const cc = confColors[ins.confidence] || confColors.low;
+                  return (
+                    <div key={i} style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "4px 0",
+                      borderBottom: i < Math.min((patternsData.insights || []).length, 3) - 1 ? "1px solid var(--border)" : "none",
+                    }}>
+                      <span title={`${ins.confidence} confidence`} style={{
+                        width: 7, height: 7, borderRadius: "50%", background: cc, flexShrink: 0,
+                      }} />
+                      <span style={{ fontSize: 12, color: "var(--text)", flex: 1 }}>{ins.insight}</span>
+                      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(seen {ins.count}×)</span>
+                    </div>
+                  );
+                })}
               </div>
-              {(patternsData.insights || []).slice(0, 3).map((ins, i) => {
-                const confColors = { low: "#6b7280", medium: "#eab308", high: "#22c55e" };
-                const cc = confColors[ins.confidence] || confColors.low;
-                return (
-                  <div key={i} style={{
-                    display: "flex", alignItems: "center", gap: 8, padding: "4px 0",
-                    borderBottom: i < Math.min((patternsData.insights || []).length, 3) - 1 ? "1px solid var(--border)" : "none",
-                  }}>
-                    <span title={`${ins.confidence} confidence`} style={{
-                      width: 7, height: 7, borderRadius: "50%", background: cc,
-                      flexShrink: 0,
-                    }} />
-                    <span style={{ fontSize: 12, color: "var(--text)", flex: 1 }}>{ins.insight}</span>
-                    <span style={{ fontSize: 10, color: "var(--text-muted)" }}>(seen {ins.count}×)</span>
-                  </div>
-                );
-              })}
-            </div>
+            </Collapsible>
           )}
 
-          {/* Evolution History chart (full width) */}
+          {/* Evolution History */}
           {history.length > 1 && (
-            <div style={{
-              gridColumn: "1 / -1", padding: "16px", background: "var(--surface)",
-              border: "1px solid var(--border)", borderRadius: 8,
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 8 }}>
-                Evolution Over Time
-              </div>
+            <Collapsible title="Evolution Over Time" defaultOpen={false} forceOpen={globalCollapse}>
               <MiniChart data={history} />
-            </div>
+            </Collapsible>
+          )}
+
+          {/* Mind Insights Panel */}
+          {mindInsights.length > 0 && (
+            <Collapsible title="Mind Insights" defaultOpen={true} forceOpen={globalCollapse}>
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                {mindInsights.map((ins, i) => (
+                  <div key={i} style={{ textAlign: "center", minWidth: 60 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: ins.color || "var(--text)" }}>{ins.value}</div>
+                    <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase" }}>{ins.label}</div>
+                  </div>
+                ))}
+              </div>
+            </Collapsible>
           )}
         </div>
       )}
 
       {tab === "skills" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
           {skills.map((s, i) => <SkillCard key={i} skill={s} />)}
           {skills.length === 0 && (
             <div style={{ gridColumn: "1 / -1", padding: 40, textAlign: "center", color: "var(--text-muted)" }}>

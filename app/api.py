@@ -534,6 +534,9 @@ def debug_state():
         "consecutive_hold_cycles": ms_hold_cycles,
         "strategy_status": ms_strategy_status,
         "last_blocked_reason_frequency": ms_blocked_freq,
+        # ── v7.5.3: Over-filtering + confidence mapping ──
+        "over_filtering": getattr(multi_strategy, '_over_filtering_flag', False),
+        "signals_seen": getattr(multi_strategy, '_signals_seen_count', 0),
     }
 
 

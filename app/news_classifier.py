@@ -1,5 +1,5 @@
 """
-news_classifier.py — CryptoMind v7.4 Observer Core: News Classifier.
+news_classifier.py — CryptoMind v7.5.3 Observer Core: News Classifier.
 
 Rule-based, deterministic classification of raw headlines into:
     - relevance   (BTC/crypto relevance 0-1)
@@ -11,7 +11,9 @@ Rule-based, deterministic classification of raw headlines into:
     - bs_risk     (probability this is bullshit 0-1)
     - category    (regulation, adoption, hack, macro, whale, protocol, narrative, noise)
     - verdict     (interesting / watch / reject / noise)
+    - source_quality (0-1 based on source tier)
 
+v7.5.3: Added source quality scoring, tiered structure, noise calibration.
 Every verdict comes with a plain-english explanation.
 No LLM calls. Fast, explainable, honest.
 """
@@ -75,6 +77,57 @@ _HIGH_IMPACT = [
     r"billion\s+(inflow|outflow|liquidat)",
 ]
 
+# ---------------------------------------------------------------------------
+# Source Quality Tiers — weighted by reliability
+# ---------------------------------------------------------------------------
+
+# Tier 1: Official/macro — high trust (0.85-0.95)
+_TIER1_SOURCES = {
+    "reuters", "bloomberg", "associated press", "ap news", "sec.gov",
+    "federal reserve", "ecb", "wsj", "wall street journal", "ft",
+    "financial times", "cnbc", "bbc", "nytimes", "new york times",
+}
+
+# Tier 2: Established crypto media (0.65-0.75)
+_TIER2_SOURCES = {
+    "coindesk", "cointelegraph", "theblock", "the block", "decrypt",
+    "bitcoinmagazine", "bitcoin magazine", "blockworks", "defiant",
+    "messari", "glassnode", "cryptoslate",
+}
+
+# Tier 3: Aggregators/sentiment (0.40-0.50)
+_TIER3_SOURCES = {
+    "coingecko", "coinmarketcap", "cryptopanic", "alternative.me",
+    "tradingview", "whale alert", "santiment", "lookonchain",
+}
+
+# Unknown sources get 0.25
+
+
+def _get_source_quality(source: str) -> tuple[float, int]:
+    """Return (quality_score, tier) for a source name.
+
+    Tier 1: macro/official → 0.90
+    Tier 2: crypto media → 0.70
+    Tier 3: aggregators → 0.45
+    Unknown → 0.25
+    """
+    src = source.lower().strip() if source else ""
+    if not src:
+        return 0.25, 4
+
+    for s in _TIER1_SOURCES:
+        if s in src:
+            return 0.90, 1
+    for s in _TIER2_SOURCES:
+        if s in src:
+            return 0.70, 2
+    for s in _TIER3_SOURCES:
+        if s in src:
+            return 0.45, 3
+    return 0.25, 4
+
+
 _CATEGORY_MAP = {
     "regulation":  ["sec", "regulation", "crackdown", "ban", "lawsuit", "compliance", "legal"],
     "adoption":    ["adoption", "institutional", "etf", "mainstream", "integration", "partnership"],
@@ -134,8 +187,12 @@ def classify(headline: str, body: str = "", source: str = "") -> dict:
     hype_score = min(1.0, len(hype_hits) * 0.30)
     is_noisy   = len(noise_hits) >= 2 or (relevance == 0 and not bull and not bear)
 
-    # --- trust (inverse of hype + noise) ---
-    trust = max(0.1, 1.0 - hype_score * 0.5 - (0.3 if is_noisy else 0))
+    # --- source quality ---
+    source_quality, source_tier = _get_source_quality(source)
+
+    # --- trust (composite: source quality + inverse hype/noise) ---
+    content_trust = max(0.1, 1.0 - hype_score * 0.5 - (0.3 if is_noisy else 0))
+    trust = round(content_trust * 0.6 + source_quality * 0.4, 2)  # blend content + source
 
     # --- novelty (crude: shorter headlines with fewer hype words = more novel) ---
     novelty = max(0.1, 1.0 - hype_score - (0.2 if "prediction" in text else 0))
@@ -171,20 +228,47 @@ def classify(headline: str, body: str = "", source: str = "") -> dict:
     weak_signal   = (total_signals <= 1 and impact not in ("high",) and relevance < 0.15)
     short_text    = len(text.split()) < 5
 
+    # --- composite quality score (content × source × novelty) ---
+    # Source influence cap: source contribution must NOT exceed 0.6 total influence
+    # Content always dominates the final score
+    raw_composite = impact_strength * 0.4 + source_quality * 0.35 + novelty * 0.25
+    source_contribution = source_quality * 0.35
+    content_contribution = impact_strength * 0.4 + novelty * 0.25
+    if source_contribution > 0.6 * raw_composite and raw_composite > 0:
+        # Cap source at 60% of total; redistribute excess to content weight
+        capped_source = 0.6 * raw_composite
+        excess = source_contribution - capped_source
+        raw_composite = content_contribution + excess + capped_source
+    composite_quality = round(max(0.05, raw_composite), 2)
+
     # --- verdict + explanation ---
+    # Source quality can upgrade borderline items, but content must always dominate.
+    # Source alone NEVER promotes a signal — content signals must be present.
+    _has_content_signal = bool(bull or bear or high_impact)  # real content evidence
     if weak_signal and short_text:
         # Too little text, too few signals — be honest about uncertainty
-        verdict, flavour = "unclear", "vague"
+        if source_tier <= 2 and relevance > 0 and _has_content_signal:
+            # High-quality source + content signal → watch
+            verdict, flavour = "watch", "thin"
+        else:
+            verdict, flavour = "unclear", "vague"
     elif mixed_signals and impact != "high" and not is_noisy:
         # Bull and bear signals cancel out — conflicting
         verdict, flavour = "unclear", "mixed"
     elif is_noisy or impact == "noise":
-        if hype_hits:
+        # Noise calibration: tier 1/2 sources need content signals too
+        if source_tier <= 2 and relevance > 0 and _has_content_signal:
+            verdict, flavour = "watch", "thin"
+        elif hype_hits:
             verdict, flavour = "noise", "promo"
         else:
             verdict, flavour = "noise", "garbage"
     elif hype_score > 0.5:
-        verdict, flavour = "reject", "hype"
+        # Hype from tier 1 source — only watch if content is actually relevant
+        if source_tier == 1 and relevance >= 0.3 and _has_content_signal:
+            verdict, flavour = "watch", "relevant"
+        else:
+            verdict, flavour = "reject", "hype"
     elif relevance == 0 and impact != "high":
         verdict, flavour = "reject", "irrelevant"
     elif impact == "high":
@@ -192,6 +276,9 @@ def classify(headline: str, body: str = "", source: str = "") -> dict:
     elif impact == "medium":
         verdict, flavour = "interesting", "medium"
     elif relevance > 0 and novelty > 0.4:
+        verdict, flavour = "watch", "relevant"
+    elif relevance > 0 and source_tier <= 2:
+        # Relevant + good source → watch (even with lower novelty)
         verdict, flavour = "watch", "relevant"
     elif relevance > 0:
         verdict, flavour = "watch", "thin"
@@ -231,6 +318,22 @@ def classify(headline: str, body: str = "", source: str = "") -> dict:
     reasoning_parts.append(f"Verdict: {verdict} — {explanation}")
     reasoning_text = " → ".join(reasoning_parts)
 
+    # --- uncertainty_flag: expose ambiguity explicitly ---
+    # True when classification is genuinely hard to read
+    _strong_bull = len(bull) >= 2
+    _strong_bear = len(bear) >= 2
+    _conflicting_strong = _strong_bull and _strong_bear
+    _borderline_score = (0.25 <= relevance <= 0.35) or (0.4 <= hype_score <= 0.6)
+    _low_content_conf = content_trust < 0.4
+    _high_noise_indicators = len(noise_hits) >= 1 and len(hype_hits) >= 1
+    uncertainty_flag = (
+        _conflicting_strong
+        or (_borderline_score and mixed_signals)
+        or _low_content_conf
+        or (_high_noise_indicators and relevance > 0)
+        or verdict in ("unclear",)
+    )
+
     # --- extracted_signals: structured signal breakdown ---
     extracted_signals = {
         "bullish": bull[:5],
@@ -259,6 +362,10 @@ def classify(headline: str, body: str = "", source: str = "") -> dict:
         "bs_risk":           round(bs_risk, 2),
         "half_life_hours":   half_life,
         "vol_warning":       vol_warning,
+        "source_quality":    round(source_quality, 2),
+        "source_tier":       source_tier,
+        "composite_quality": composite_quality,
+        "uncertainty_flag":  uncertainty_flag,
         "verdict":           verdict,
         "explanation":       explanation,
         "reasoning_text":    reasoning_text,
