@@ -78,8 +78,8 @@ function InlineMetric({ label, value, color }) {
 
 export default function Dashboard() {
   const { data: live, loading: lLoad, error: lErr, retry: rLive } = useApi("/live", 5000);
-  const { data: autoTrades, retry: rTrades } = useApi("/auto/trades?limit=15", 10000);
-  const { data: autoEquity, retry: rEquity } = useApi("/auto/equity?limit=100", 10000);
+  const { data: autoTrades, retry: rTrades } = useApi("/v7/trades/scoped?scope=session&limit=15", 10000);
+  const { data: autoEquity, retry: rEquity } = useApi("/v7/performance/equity?scope=session&max_points=100", 15000);
   const { data: aiPerf } = useApi("/ai-performance", 30000);
   const { data: adaptive } = useApi("/adaptive", 15000);
   const { data: sysAge } = useApi("/v7/system-age", 10000);
@@ -729,7 +729,7 @@ export default function Dashboard() {
             </div>
           )}
           {/* Equity */}
-          <SimpleEquityChart equity={autoEquity?.equity} />
+          <SimpleEquityChart equity={(autoEquity?.points || []).map(p => ({ timestamp: p.timestamp, total_equity: p.equity }))} />
         </div>
 
         {/* Right: Auto-Trades — fixed height, scrollable */}

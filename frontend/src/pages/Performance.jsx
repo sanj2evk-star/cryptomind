@@ -42,10 +42,9 @@ export default function Performance() {
   const [scope, setScope] = useState("session");
   const [showDrawdown, setShowDrawdown] = useState(!_isTouch); // default open on desktop, closed on iPad
 
-  const { data: perf, loading: pLoading, error: pError, retry: pRetry } = useApi("/performance", 30000);
+  const { data: scopedData, loading: pLoading, error: pError, retry: pRetry } = useApi(`/v7/performance/scoped?scope=${scope}`, 15000);
   const { data: stratData, loading: sLoading, error: sError } = useApi("/strategies");
-  const { data: tradeData } = useApi("/trades?limit=100");
-  const { data: scopedData } = useApi(`/v7/performance/scoped?scope=${scope}`, 30000);
+  const { data: tradeData } = useApi(`/v7/trades/scoped?scope=${scope}&limit=100`, 30000);
   const { data: patternsData } = useApi("/v7/mind/patterns", 60000);
   const { data: equityData } = useApi(`/v7/performance/equity?scope=${scope}&max_points=400`, 15000);
 
@@ -63,10 +62,17 @@ export default function Performance() {
     );
   }
 
-  const metrics = perf || {};
+  const scopedStats = scopedData?.stats || {};
+  const metrics = {
+    total_trades: scopedStats.total || 0,
+    wins: scopedStats.wins || 0,
+    losses: scopedStats.losses || 0,
+    win_rate: scopedStats.win_rate || 0,
+    total_pnl: scopedStats.total_pnl || 0,
+    max_drawdown: 0,
+  };
   const strategies = stratData?.strategies || [];
   const trades = tradeData?.trades || [];
-  const scopedStats = scopedData?.stats || {};
   const patterns = patternsData || {};
 
   const pieData = [
@@ -84,7 +90,7 @@ export default function Performance() {
   trades
     .filter((t) => t.action === "SELL")
     .forEach((t) => {
-      const r = t.market_condition || "unknown";
+      const r = t.regime || t.market_condition || "unknown";
       if (!regimeMap[r]) regimeMap[r] = 0;
       regimeMap[r] += parseFloat(t.pnl) || 0;
     });
@@ -114,7 +120,7 @@ export default function Performance() {
   }
 
   // Scoped stats display
-  const sTrades = scopedStats.sells || 0;
+  const sTrades = scopedStats.total || 0;
   const sWins = scopedStats.wins || 0;
   const sLosses = scopedStats.losses || 0;
   const sWinRate = scopedStats.win_rate || 0;

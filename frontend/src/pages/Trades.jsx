@@ -213,69 +213,58 @@ export default function Trades() {
     return `/v7/trades/scoped?scope=${scope}&limit=5`;
   }, [scope, startDate, endDate]);
 
-  // Summary
-  const { data: summary } = useApi("/auto/trades/summary", 30000);
+  // Summary — from v7 scoped stats (single source of truth)
   const { data: sysAge } = useApi("/v7/system-age", 30000);
-  const { data: scopedStats } = useApi(scopeUrl, 30000);
+  const { data: scopedStats, retry: rScoped } = useApi(scopeUrl, 15000);
 
-  // Fetch trades
+  // Build the fetch URL using v7 scoped endpoint (DB-backed, not CSV)
+  const tradesUrl = useMemo(() => {
+    const params = new URLSearchParams({ scope, limit: "200" });
+    if (scope === "range" && startDate && endDate) {
+      params.set("start", startDate);
+      params.set("end", endDate);
+    }
+    return `${BASE}/v7/trades/scoped?${params}`;
+  }, [scope, startDate, endDate]);
+
+  // Fetch trades from v7 DB (single source of truth)
   const fetchTrades = useCallback(async (reset = false) => {
-    const newOffset = reset ? 0 : offset;
-    const params = new URLSearchParams({
-      limit: "50",
-      offset: String(newOffset),
-    });
-    if (filterAction) params.set("action", filterAction);
-    if (filterStrategy) params.set("strategy", filterStrategy);
-    if (filterRegime) params.set("regime", filterRegime);
-    if (filterEntry) params.set("entry_type", filterEntry);
-
     try {
       setLoading(true);
       const token = getToken();
       const headers = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(`${BASE}/auto/trades?${params}`, { headers });
+      const res = await fetch(tradesUrl, { headers });
       if (!res.ok) throw new Error(`Server error (${res.status})`);
       const data = await res.json();
 
       let newTrades = data.trades || [];
 
-      // Client-side win/loss filter (needs pnl)
-      if (filterResult === "win") {
-        newTrades = newTrades.filter(t => t.action === "SELL" && Number(t.pnl) > 0);
-      } else if (filterResult === "loss") {
-        newTrades = newTrades.filter(t => t.action === "SELL" && Number(t.pnl) < 0);
-      }
+      // Client-side filters (action, strategy, regime, entry_type, win/loss)
+      if (filterAction) newTrades = newTrades.filter(t => (t.action || "").toUpperCase() === filterAction);
+      if (filterStrategy) newTrades = newTrades.filter(t => t.strategy === filterStrategy);
+      if (filterRegime) newTrades = newTrades.filter(t => t.regime === filterRegime);
+      if (filterEntry) newTrades = newTrades.filter(t => (t.entry_type || "").includes(filterEntry));
+      if (filterResult === "win") newTrades = newTrades.filter(t => t.action === "SELL" && Number(t.pnl) > 0);
+      else if (filterResult === "loss") newTrades = newTrades.filter(t => t.action === "SELL" && Number(t.pnl) < 0);
 
-      if (reset || newOffset === 0) {
-        setTrades(newTrades);
-        setOffset(newTrades.length);
-      } else {
-        setTrades(prev => [...prev, ...newTrades]);
-        setOffset(newOffset + newTrades.length);
-      }
+      setTrades(newTrades);
       setTotal(data.total || 0);
-      setHasMore(data.has_more || false);
+      setHasMore(false);
       setError(null);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [offset, filterAction, filterStrategy, filterRegime, filterEntry, filterResult]);
+  }, [tradesUrl, filterAction, filterStrategy, filterRegime, filterEntry, filterResult]);
 
   // Initial load + auto-refresh
   useEffect(() => {
     fetchTrades(true);
     const iv = setInterval(() => fetchTrades(true), 30000);
     return () => clearInterval(iv);
-  }, [filterAction, filterStrategy, filterRegime, filterEntry, filterResult]);
-
-  // Reset offset when filters change
-  useEffect(() => {
-    setOffset(0);
-  }, [filterAction, filterStrategy, filterRegime, filterEntry, filterResult]);
+  }, [fetchTrades]);
 
   const filteredTrades = useMemo(() => {
     if (showHold) return trades;
@@ -427,7 +416,16 @@ export default function Trades() {
       )}
 
       {/* Session Summary */}
-      <SessionSummary summary={summary} />
+      <SessionSummary summary={scopedStats?.stats ? {
+        total_trades: scopedStats.stats.total || 0,
+        buys: scopedStats.stats.buys || 0,
+        sells: scopedStats.stats.sells || 0,
+        win_rate: scopedStats.stats.win_rate || 0,
+        net_pnl: scopedStats.stats.total_pnl || 0,
+        best_trade: scopedStats.stats.best_trade || 0,
+        worst_trade: scopedStats.stats.worst_trade || 0,
+        regime: "—",
+      } : null} />
 
       {/* Debug Panel */}
       {debugMode && <DebugPanel />}

@@ -4,6 +4,30 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.7.3-fix — Frontend Wiring: Single Source of Truth
+**Date:** 2026-03-22
+
+### Root Cause (Team Debug Session)
+Frontend pages were reading from **legacy CSV-based endpoints** (`/auto/trades`, `/auto/equity`, `/performance`) instead of the v7 SQLite database (`/v7/trades/scoped`, `/v7/performance/scoped`). The DB had real data (33 cycles, 1 trade), but the UI showed empty because it read from a different source.
+
+### Wiring Changes
+| Page | Old Source | New Source |
+|------|-----------|-----------|
+| **Trades.jsx** (main table) | `GET /auto/trades` (CSV) | `GET /v7/trades/scoped` (DB) |
+| **Trades.jsx** (summary) | `GET /auto/trades/summary` (CSV) | `scopedStats` from `/v7/trades/scoped` |
+| **Dashboard.jsx** (trade feed) | `GET /auto/trades` (CSV) | `GET /v7/trades/scoped?scope=session` (DB) |
+| **Dashboard.jsx** (equity chart) | `GET /auto/equity` (CSV) | `GET /v7/performance/equity?scope=session` (DB) |
+| **Performance.jsx** (metrics) | `GET /performance` (CSV) | `GET /v7/performance/scoped` (DB) |
+| **Performance.jsx** (trades) | `GET /trades` (CSV) | `GET /v7/trades/scoped` (DB) |
+| **Leaderboard** | `/leaderboard` | Unchanged — already reads runtime state (9 strategies present) |
+
+### Result
+- v7 DB is now the **single source of truth** for all trade/performance data
+- No CSV fallback — removed dual-source ambiguity
+- All scoped filters (today/yesterday/weekly/monthly/lifetime/range) now work on every page
+
+---
+
 ## v7.7.3 — Equity Curve + Drawdown Layer
 **Date:** 2026-03-22
 
