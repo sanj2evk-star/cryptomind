@@ -199,6 +199,40 @@ def _markers_from_crowd_events(events: list[dict], session_id: int) -> list[dict
     return markers
 
 
+def _markers_from_signals(events: list[dict], session_id: int) -> list[dict]:
+    """Create markers from signal layer events (v7.6)."""
+    markers = []
+    for ev in events:
+        source = ev.get("source", "unknown")
+        sig_type = ev.get("signal_type", "unknown")
+        direction = ev.get("direction", "neutral")
+        strength = ev.get("strength", 0)
+        context = ev.get("context", "")
+
+        # Only create markers for meaningful signals
+        if strength < 0.3:
+            continue
+
+        title = f"Signal: {sig_type.replace('_', ' ').title()}"
+        detail = context or f"{source} — {direction} (strength {strength:.0%})"
+        importance = 3
+        if strength > 0.7:
+            importance = 6
+        elif strength > 0.5:
+            importance = 4
+
+        markers.append({
+            "session_id": session_id,
+            "marker_type": "signal",
+            "title": title,
+            "detail": detail,
+            "importance": importance,
+            "timestamp": ev.get("timestamp", ""),
+            "_sort_ts": ev.get("timestamp", ""),
+        })
+    return markers
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -236,6 +270,15 @@ def build_replay(session_id: int = None, persist: bool = True) -> dict:
     except Exception:
         pass
 
+    # Signal layer events (v7.6)
+    signal_events = []
+    try:
+        from signal_layer import ENABLE_SIGNAL_LAYER
+        if ENABLE_SIGNAL_LAYER:
+            signal_events = db.get_signal_events(limit=30, session_id=sid)
+    except Exception:
+        pass
+
     # Generate markers
     all_markers = []
     all_markers.extend(_markers_from_trades(trades_list, sid))
@@ -244,6 +287,7 @@ def build_replay(session_id: int = None, persist: bool = True) -> dict:
     all_markers.extend(_markers_from_milestones(milestones, sid))
     all_markers.extend(_markers_from_regime_changes(snapshots, sid))
     all_markers.extend(_markers_from_crowd_events(crowd_events, sid))
+    all_markers.extend(_markers_from_signals(signal_events, sid))
 
     # Sort by timestamp
     all_markers.sort(key=lambda m: m.get("_sort_ts", ""))

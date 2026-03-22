@@ -30,6 +30,7 @@ Tables:
    29) capital_ledger       — capital events: funding, refills, withdrawals (v7.4.1)
    30) lifetime_portfolio   — financial state persisting across versions (v7.4.1)
    31) crowd_sentiment_events — crowd belief snapshots for belief vs reality (v7.5)
+   32) signal_events — observer signal layer events (v7.6)
 """
 
 from __future__ import annotations
@@ -828,6 +829,26 @@ CREATE TABLE IF NOT EXISTS crowd_sentiment_events (
 
 CREATE INDEX IF NOT EXISTS idx_crowd_sentiment_ts ON crowd_sentiment_events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_crowd_sentiment_bias ON crowd_sentiment_events(bias);
+
+-- 32) signal_events: observer signal layer events (v7.6 Signal Layer)
+CREATE TABLE IF NOT EXISTS signal_events (
+    signal_id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id              INTEGER NOT NULL,
+    timestamp               TEXT NOT NULL,
+    source                  TEXT NOT NULL DEFAULT 'unknown',
+    signal_type             TEXT NOT NULL DEFAULT 'unknown',
+    direction               TEXT NOT NULL DEFAULT 'neutral',
+    strength                REAL NOT NULL DEFAULT 0.0,
+    confidence              REAL NOT NULL DEFAULT 0.0,
+    raw_value               REAL NOT NULL DEFAULT 0.0,
+    context                 TEXT,
+    meta_json               TEXT,
+    FOREIGN KEY (session_id) REFERENCES version_sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_events_session ON signal_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_signal_events_ts ON signal_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_signal_events_source ON signal_events(source);
 """
 
 
@@ -3104,3 +3125,71 @@ def get_crowd_sentiment_latest() -> dict | None:
                ORDER BY id DESC LIMIT 1"""
         ).fetchone()
         return dict_from_row(row)
+
+
+# ---------------------------------------------------------------------------
+# signal_events helpers (v7.6 Signal Layer)
+# ---------------------------------------------------------------------------
+
+def insert_signal_event(session_id: int, source: str, signal_type: str,
+                         direction: str, strength: float, confidence: float,
+                         raw_value: float = 0.0, context: str = None,
+                         meta_json: str = None) -> int:
+    """Insert a signal event. Dedup by session + source + type within 60s."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        existing = conn.execute(
+            """SELECT signal_id FROM signal_events
+               WHERE session_id = ? AND source = ? AND signal_type = ?
+               AND timestamp > datetime(?, '-60 seconds')
+               LIMIT 1""",
+            (session_id, source, signal_type, now)
+        ).fetchone()
+        if existing:
+            return existing["signal_id"]
+        cursor = conn.execute(
+            """INSERT INTO signal_events
+               (session_id, timestamp, source, signal_type, direction,
+                strength, confidence, raw_value, context, meta_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, now, source, signal_type, direction,
+             strength, confidence, raw_value, context, meta_json)
+        )
+        return cursor.lastrowid
+
+
+def get_signal_events(limit: int = 50, source: str = None,
+                       session_id: int = None) -> list[dict]:
+    """Get recent signal events, newest first."""
+    with get_db() as conn:
+        w, p = [], []
+        if session_id:
+            w.append("session_id = ?"); p.append(session_id)
+        if source:
+            w.append("source = ?"); p.append(source)
+        where = f"WHERE {' AND '.join(w)}" if w else ""
+        p.append(limit)
+        rows = conn.execute(
+            f"""SELECT * FROM signal_events {where}
+                ORDER BY signal_id DESC LIMIT ?""",
+            tuple(p)
+        ).fetchall()
+        return rows_to_dicts(rows)
+
+
+def get_signal_events_since(since_ts: str, session_id: int = None,
+                              limit: int = 200) -> list[dict]:
+    """Get signal events since a given timestamp."""
+    with get_db() as conn:
+        w = ["timestamp >= ?"]
+        p = [since_ts]
+        if session_id:
+            w.append("session_id = ?"); p.append(session_id)
+        p.append(limit)
+        rows = conn.execute(
+            f"""SELECT * FROM signal_events
+                WHERE {' AND '.join(w)}
+                ORDER BY signal_id DESC LIMIT ?""",
+            tuple(p)
+        ).fetchall()
+        return rows_to_dicts(rows)

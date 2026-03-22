@@ -4,6 +4,175 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.6.1 — Signal Layer → Review Export Integration
+**Date:** 2026-03-22
+
+**What changed:**
+
+### Modified: `review_export_engine.py`
+
+#### New builder: `build_signal_summary(start, end, scope)`
+- Crowd bias (bullish/bearish/mixed) + strength + event count
+- Derivatives positioning summary with avg funding rate
+- Liquidation pressure summary with total $M + long/short counts
+- Alignment assessment (aligned/diverging/unclear)
+- Tension score: avg + peak (0-100 scale)
+- Narrative state distribution: calm/building/overheated/conflicted
+- Top 3 signal insights (most frequent signal types with dominant direction, avg strength)
+- Live snapshot of current signal state
+- Graceful fallback: `{"status": "no_signal_data", "message": "Signal layer still warming up."}` when no data
+
+#### New section in export: `signal_context`
+- Placed after `market_context` in export dict
+- Included in all review types: daily, weekly, monthly, custom
+- All fields: alignment, tension_score_avg, tension_score_peak, crowd_summary, derivatives_summary, liquidation_summary, narrative_state, narrative_distribution, key_signal_insights
+
+#### Appendix extension: `signal_events_recent`
+- In detailed mode, appendix now includes up to 20 recent signal events
+- Each: timestamp, signal_type, description, direction, confidence
+- Added to both JSON and text rendering
+
+#### Continuity comparison extension: `signal_behavior_vs_lifetime`
+- New field in `continuity_comparison` section
+- alignment_trend: improving / worsening / stable
+- divergence_trend: increasing / decreasing / stable
+- tension_trend: rising / falling / stable
+- Human-readable assessment comparing range vs lifetime signal behavior
+- Graceful fallback when no range data
+
+#### Text renderer updated
+- New "--- Signal Context ---" section with full signal data
+- Signal behavior comparison added to "--- Continuity vs Lifetime ---"
+- New "--- Appendix: Signal Events (Recent) ---" section
+
+### Modified: `session_manager.py`
+- APP_VERSION → "7.6.1"
+
+### Modified: `api.py`
+- Description → "v7.6.1 — Observer Core: Signal Layer + Review Export Integration"
+- No endpoint changes needed — existing `/v7/review/export` and `/v7/review/export/text` automatically include new signal sections
+
+**Execution logic touched:** NONE. No changes to auto_trader, decision_engine, multi_strategy, paper_broker, or any execution flow.
+
+**Files modified:** 3 (review_export_engine.py, session_manager.py, api.py)
+
+**Sections added:** 4 (signal_context, signal_events_recent in appendix, signal_behavior_vs_lifetime in continuity, text rendering for all)
+
+**Sample export signal_context section:**
+```json
+{
+  "status": "ok",
+  "signal_events_in_range": 42,
+  "alignment": "diverging",
+  "tension_score_avg": 38,
+  "tension_score_peak": 72,
+  "crowd_summary": {"bias": "bullish", "strength": 0.45, "events": 12},
+  "derivatives_summary": {"description": "Leaning bullish positioning (avg funding: +0.0023%)", "events": 18},
+  "liquidation_summary": {"description": "~$45M liquidated (3 long, 2 short events)", "events": 5},
+  "narrative_state": "building",
+  "narrative_distribution": {"calm": 8, "building": 20, "overheated": 5, "conflicted": 9},
+  "key_signal_insights": [
+    {"signal_type": "funding_rate", "occurrences": 15, "avg_strength": 0.42, "dominant_direction": "bullish"},
+    {"signal_type": "btc_price_prediction", "occurrences": 12, "avg_strength": 0.38, "dominant_direction": "bullish"},
+    {"signal_type": "long_liquidation", "occurrences": 3, "avg_strength": 0.55, "dominant_direction": "bearish"}
+  ]
+}
+```
+
+**What's right:**
+- Zero breaking changes to existing export structure — signal_context is purely additive
+- All 4 review types (daily/weekly/monthly/custom) include signal data
+- Graceful fallback at every level — empty table, disabled flag, import failure
+- Signal comparison in continuity uses rule-based assessment, no LLM
+- Text renderer shows signal data in human-readable format
+
+**What could be improved:**
+- Could weight signal insights by recency (time-decay)
+- Could add signal accuracy tracking over time (were signal reads predictive?)
+- Narrative state classification in summary could match aggregator's more sophisticated logic
+- Could add per-strategy signal correlation (did certain strategies trade in line with signals?)
+
+**Build status:** All Python files compile clean. Frontend builds successfully.
+**Deployment status:** Awaiting permission.
+
+---
+
+## v7.6.0 — Tier 1 Signal Layer (Observer-Only, Rich Experience)
+**Date:** 2026-03-22
+
+**What changed:**
+
+### New Module: `app/signal_layer/` (11 files)
+
+#### Collectors (3)
+- **polymarket_collector.py** — Prediction market / crowd positioning signals. Currently derives from crowd_sentiment_engine; designed so real Polymarket API replaces `_fetch()`.
+- **derivatives_collector.py** — Funding rates, open interest changes, long/short ratios. Currently synthetic from price momentum; designed for Binance/Bybit API swap.
+- **liquidation_collector.py** — Long/short liquidation events. Synthetic from price volatility; designed for Coinglass API swap.
+
+#### Normalizer (1)
+- **base_normalizer.py** — Canonical signal schema: source, signal_type, direction, strength, confidence, raw_value, context, meta, timestamp. All collectors pass through `normalize()`.
+
+#### Interpreters (3)
+- **positioning_interpreter.py** — Reads derivatives signals → overcrowded_long/short, balanced, building. Risk: low/moderate/high/extreme.
+- **crowd_interpreter.py** — Reads Polymarket signals → crowd conviction (strong/moderate/weak/conflicted), divergence risk assessment.
+- **liquidation_interpreter.py** — Reads liquidation signals → long_squeeze/short_squeeze/mixed_flush/calm with severity grading.
+
+#### Core (3)
+- **signal_store.py** — Persistent storage bridge to `db.signal_events` table. Insert with 60s dedup, query by source/session.
+- **signal_aggregator.py** — Main orchestrator: collectors → interpreters → composite assessment. Cached 45s. Composite: overall_direction, tension_score (0-100), narrative_state (calm/building/overheated/conflicted), alignment (aligned/diverging/unclear).
+- **signal_insight_engine.py** — Generates human-readable insights: alignment, divergence, leverage risk, crowd divergence, liquidation events, overheated warnings. Capped at 5 insights, sorted by importance.
+
+#### Init (1)
+- **__init__.py** — Feature flags: ENABLE_SIGNAL_LAYER=True, ENABLE_SIGNAL_INFLUENCE=False.
+
+### Database Changes (`db.py`)
+- New table #32: `signal_events` — session_id, timestamp, source, signal_type, direction, strength, confidence, raw_value, context, meta_json
+- Indexes on session_id, timestamp, source
+- Helper functions: `insert_signal_event()`, `get_signal_events()`, `get_signal_events_since()`
+
+### Integration with Existing Engines
+- **mind_feed_engine.py** — 4 new event types: signal_alignment (green), signal_divergence (amber), signal_warning (red), signal_info (blue). New handler: `on_signal_insights()`.
+- **contextual_summary_engine.py** — New `signal_context` section in compute() output: alignment, tension_score, narrative_state, overall_direction, summary.
+- **bullshit_radar.py** — New `signal_layer` overlay in compute(): compares crowd heat vs signal direction for crowd_vs_positioning mismatch detection.
+- **replay_engine.py** — New `_markers_from_signals()` generator. Markers for signals with strength > 0.3. Importance scales 3→6 based on strength.
+
+### API Endpoints (`api.py`)
+- `GET /v7/signals/latest` — Full aggregated snapshot (signals, interpretations, composite)
+- `GET /v7/signals/insights` — Human-readable signal insights
+- `GET /v7/signals/history` — Historical signal events from DB (filterable by source)
+
+### Frontend (`Lab.jsx`)
+- New "Signal Layer" collapsible panel between Belief vs Reality and Live Feed
+- Metrics row: Direction, Tension (with progress bar), Alignment, Narrative State
+- Interpretation cards: Derivatives Positioning, Crowd Conviction, Liquidation
+- Signal Insights list with importance badges and color coding
+- Full warm-up state handling
+
+### Version Bump
+- session_manager.py: APP_VERSION → "7.6.0"
+- api.py: description → "v7.6.0 — Observer Core: Tier 1 Signal Layer"
+
+**What's right:**
+- Complete observer isolation — ZERO influence on trading decisions
+- Feature flags allow disabling without code changes
+- All collectors designed for real API swap (just replace `_fetch()`)
+- Composite assessment provides rich narrative context
+- Signal persistence via DB with dedup protection
+- All 4 existing engines enhanced without breaking changes
+- Frontend panel follows existing Lab.jsx patterns exactly
+
+**What could be improved:**
+- Collectors are currently synthetic — real API integration is the natural next step
+- Signal persistence interval (120s) could be configurable
+- Could add signal-aware entries to daily journal engine
+- Tension score calculation is linear — could benefit from exponential weighting
+- No historical trend analysis yet (tension over time, direction shifts)
+
+**Build status:** All Python files compile clean. Frontend builds successfully.
+**Deployment status:** Awaiting permission.
+
+---
+
 ## v7.5.3b — Stabilization Patch (Behavior + News + UX Hardening)
 **Date:** 2026-03-22
 

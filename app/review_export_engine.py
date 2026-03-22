@@ -1,5 +1,5 @@
 """
-review_export_engine.py — CryptoMind v7.5.2: Review Export / Black Box System.
+review_export_engine.py — CryptoMind v7.6.1: Review Export / Black Box System.
 
 Generates structured, explainable review exports of system behavior,
 decisions, learning, and evolution over any time range.
@@ -17,6 +17,7 @@ Reads from lifetime-persistent layers:
     - news_truth_reviews, news_event_analysis, crowd_sentiment_events
     - lifetime_identity, lifetime_portfolio, milestones
     - replay_markers
+    - signal_events (v7.6 Signal Layer)
 
 Rule-based, deterministic. No LLM dependency.
 Observer-only — no effect on execution.
@@ -513,6 +514,192 @@ def build_observer_summary(start: str, end: str) -> dict:
     }
 
 
+def build_signal_summary(start: str, end: str, scope: str) -> dict:
+    """Section K-bis: Signal Layer context (v7.6.1).
+
+    Aggregates signal events from the review period into a summary
+    covering crowd bias, derivatives positioning, liquidation pressure,
+    alignment, tension, and narrative state distribution.
+
+    Graceful fallback if signal layer not active or no data.
+    """
+    # Safety: check if signal layer is available
+    try:
+        from signal_layer import ENABLE_SIGNAL_LAYER
+        if not ENABLE_SIGNAL_LAYER:
+            return {"status": "no_signal_data", "message": "Signal layer is disabled."}
+    except ImportError:
+        return {"status": "no_signal_data", "message": "Signal layer not installed."}
+
+    # Get signal events in range
+    try:
+        import db as v7db
+        all_events = v7db.get_signal_events(limit=500)
+    except Exception:
+        return {"status": "no_signal_data", "message": "Signal layer still warming up."}
+
+    events = [e for e in all_events if _in_range(e.get("timestamp", ""), start, end)]
+
+    if not events:
+        return {"status": "no_signal_data", "message": "Signal layer still warming up."}
+
+    # --- Crowd bias ---
+    crowd_events = [e for e in events if e.get("source") == "polymarket"]
+    crowd_directions = [e.get("direction", "neutral") for e in crowd_events]
+    crowd_bullish = sum(1 for d in crowd_directions if d == "bullish")
+    crowd_bearish = sum(1 for d in crowd_directions if d == "bearish")
+    crowd_total = len(crowd_directions)
+    if crowd_total > 0:
+        if crowd_bullish > crowd_total * 0.6:
+            crowd_bias = "bullish"
+        elif crowd_bearish > crowd_total * 0.6:
+            crowd_bias = "bearish"
+        else:
+            crowd_bias = "mixed"
+        crowd_strengths = [e.get("strength", 0) for e in crowd_events]
+        crowd_strength = round(sum(crowd_strengths) / max(len(crowd_strengths), 1), 3)
+    else:
+        crowd_bias = "no data"
+        crowd_strength = 0
+
+    # --- Derivatives positioning ---
+    deriv_events = [e for e in events if e.get("source") == "derivatives"]
+    deriv_types = Counter(e.get("signal_type", "unknown") for e in deriv_events)
+    deriv_directions = [e.get("direction", "neutral") for e in deriv_events]
+    deriv_bull = sum(1 for d in deriv_directions if d == "bullish")
+    deriv_bear = sum(1 for d in deriv_directions if d == "bearish")
+    if deriv_events:
+        if deriv_bull > len(deriv_events) * 0.6:
+            deriv_summary = "Leaning bullish positioning"
+        elif deriv_bear > len(deriv_events) * 0.6:
+            deriv_summary = "Leaning bearish positioning"
+        else:
+            deriv_summary = "Mixed positioning signals"
+        # Funding rate specifics
+        fr_events = [e for e in deriv_events if e.get("signal_type") == "funding_rate"]
+        if fr_events:
+            avg_fr = sum(e.get("raw_value", 0) for e in fr_events) / len(fr_events)
+            deriv_summary += f" (avg funding: {avg_fr:+.4f}%)"
+    else:
+        deriv_summary = "No derivatives data in range."
+
+    # --- Liquidation pressure ---
+    liq_events = [e for e in events if e.get("source") == "liquidation"]
+    if liq_events:
+        total_liq = sum(e.get("raw_value", 0) for e in liq_events)
+        long_liqs = [e for e in liq_events if e.get("signal_type") == "long_liquidation"]
+        short_liqs = [e for e in liq_events if e.get("signal_type") == "short_liquidation"]
+        liq_summary = f"~${total_liq:.0f}M liquidated ({len(long_liqs)} long, {len(short_liqs)} short events)"
+    else:
+        liq_summary = "No significant liquidation events."
+
+    # --- Alignment ---
+    all_dirs = [e.get("direction", "neutral") for e in events]
+    bull_count = sum(1 for d in all_dirs if d == "bullish")
+    bear_count = sum(1 for d in all_dirs if d == "bearish")
+    total_count = len(all_dirs)
+    unique_dirs = set(d for d in all_dirs if d != "neutral")
+    if len(unique_dirs) <= 1:
+        alignment = "aligned"
+    elif bull_count > 0 and bear_count > 0 and min(bull_count, bear_count) / max(bull_count, bear_count) > 0.4:
+        alignment = "diverging"
+    else:
+        alignment = "unclear"
+
+    # --- Tension score ---
+    strengths = [e.get("strength", 0) for e in events]
+    tension_avg = round(sum(strengths) / max(len(strengths), 1) * 100)
+    tension_peak = round(max(strengths) * 100) if strengths else 0
+
+    # --- Narrative state distribution ---
+    # Classify each event into a narrative bucket
+    narrative_counts = Counter()
+    for e in events:
+        s = e.get("strength", 0)
+        d = e.get("direction", "neutral")
+        if s > 0.7:
+            narrative_counts["overheated"] += 1
+        elif s > 0.4:
+            narrative_counts["building"] += 1
+        elif d == "neutral" and s < 0.2:
+            narrative_counts["calm"] += 1
+        else:
+            narrative_counts["conflicted"] += 1
+
+    narrative_distribution = {
+        "calm": narrative_counts.get("calm", 0),
+        "building": narrative_counts.get("building", 0),
+        "overheated": narrative_counts.get("overheated", 0),
+        "conflicted": narrative_counts.get("conflicted", 0),
+    }
+    dominant_narrative = max(narrative_distribution, key=narrative_distribution.get) if narrative_distribution else "calm"
+
+    # --- Top 3 signal insights ---
+    # Group by signal_type, pick strongest/most frequent
+    type_groups: dict[str, list] = {}
+    for e in events:
+        st = e.get("signal_type", "unknown")
+        type_groups.setdefault(st, []).append(e)
+
+    top_insights = []
+    for stype, group in sorted(type_groups.items(), key=lambda x: len(x[1]), reverse=True):
+        avg_str = sum(e.get("strength", 0) for e in group) / len(group)
+        dominant_dir = max(set(e.get("direction", "neutral") for e in group),
+                          key=lambda d: sum(1 for e in group if e.get("direction") == d))
+        ctx = group[0].get("context", "")
+        top_insights.append({
+            "signal_type": stype,
+            "occurrences": len(group),
+            "avg_strength": round(avg_str, 3),
+            "dominant_direction": dominant_dir,
+            "example_context": ctx[:120],
+        })
+        if len(top_insights) >= 3:
+            break
+
+    # --- Current live snapshot (bonus) ---
+    live_snapshot = {}
+    try:
+        from signal_layer.signal_aggregator import aggregate
+        agg = aggregate()
+        if agg and not agg.get("warming_up"):
+            c = agg.get("composite", {})
+            live_snapshot = {
+                "current_direction": c.get("overall_direction", "neutral"),
+                "current_tension": c.get("tension_score", 0),
+                "current_narrative": c.get("narrative_state", "calm"),
+                "current_alignment": c.get("alignment", "unclear"),
+            }
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "signal_events_in_range": len(events),
+        "alignment": alignment,
+        "tension_score_avg": tension_avg,
+        "tension_score_peak": tension_peak,
+        "crowd_summary": {
+            "bias": crowd_bias,
+            "strength": crowd_strength,
+            "events": crowd_total,
+        },
+        "derivatives_summary": {
+            "description": deriv_summary,
+            "events": len(deriv_events),
+            "type_breakdown": dict(deriv_types),
+        },
+        "liquidation_summary": {
+            "description": liq_summary,
+            "events": len(liq_events),
+        },
+        "narrative_state": dominant_narrative,
+        "narrative_distribution": narrative_distribution,
+        "key_signal_insights": top_insights,
+        "live_snapshot": live_snapshot if live_snapshot else None,
+    }
+
+
 def build_continuity_comparison(start: str, end: str, scope: str) -> dict:
     """Section K: compare current range vs lifetime."""
     # Current range stats
@@ -568,6 +755,72 @@ def build_continuity_comparison(start: str, end: str, scope: str) -> dict:
     else:
         assessment = "Mixed signals — some metrics improving, others flat."
 
+    # --- Signal behavior vs lifetime (v7.6.1) ---
+    signal_comparison = {}
+    try:
+        import db as _sdb
+        from signal_layer import ENABLE_SIGNAL_LAYER
+        if ENABLE_SIGNAL_LAYER:
+            # Range signals
+            range_signals = _sdb.get_signal_events(limit=500)
+            range_signals = [s for s in range_signals if _in_range(s.get("timestamp", ""), start, end)]
+
+            # All-time signals (lifetime)
+            all_signals = _sdb.get_signal_events(limit=1000)
+
+            if range_signals and all_signals:
+                # Alignment comparison: are signals aligning better or worse?
+                range_dirs = [s.get("direction", "neutral") for s in range_signals]
+                all_dirs = [s.get("direction", "neutral") for s in all_signals]
+
+                range_unique = set(d for d in range_dirs if d != "neutral")
+                all_unique = set(d for d in all_dirs if d != "neutral")
+                range_consensus = max(Counter(range_dirs).values()) / max(len(range_dirs), 1) if range_dirs else 0
+                all_consensus = max(Counter(all_dirs).values()) / max(len(all_dirs), 1) if all_dirs else 0
+
+                alignment_trend = "improving" if range_consensus > all_consensus + 0.05 else \
+                                  "worsening" if range_consensus < all_consensus - 0.05 else "stable"
+
+                # Divergence trend: is divergence increasing or decreasing?
+                range_bull = sum(1 for d in range_dirs if d == "bullish")
+                range_bear = sum(1 for d in range_dirs if d == "bearish")
+                all_bull = sum(1 for d in all_dirs if d == "bullish")
+                all_bear = sum(1 for d in all_dirs if d == "bearish")
+
+                range_div = min(range_bull, range_bear) / max(max(range_bull, range_bear), 1)
+                all_div = min(all_bull, all_bear) / max(max(all_bull, all_bear), 1)
+                divergence_trend = "increasing" if range_div > all_div + 0.1 else \
+                                   "decreasing" if range_div < all_div - 0.1 else "stable"
+
+                # Tension comparison
+                range_tensions = [s.get("strength", 0) for s in range_signals]
+                all_tensions = [s.get("strength", 0) for s in all_signals]
+                range_avg_t = sum(range_tensions) / max(len(range_tensions), 1)
+                all_avg_t = sum(all_tensions) / max(len(all_tensions), 1)
+                tension_trend = "rising" if range_avg_t > all_avg_t + 0.05 else \
+                                "falling" if range_avg_t < all_avg_t - 0.05 else "stable"
+
+                signal_comparison = {
+                    "alignment_trend": alignment_trend,
+                    "divergence_trend": divergence_trend,
+                    "tension_trend": tension_trend,
+                    "range_signal_count": len(range_signals),
+                    "lifetime_signal_count": len(all_signals),
+                    "assessment": (
+                        "Signals are aligning better — clearer market reads."
+                        if alignment_trend == "improving" and divergence_trend != "increasing"
+                        else "Signal divergence is growing — market reads are murkier."
+                        if divergence_trend == "increasing"
+                        else "Tension is rising — market stress increasing."
+                        if tension_trend == "rising"
+                        else "Signal behavior is consistent with lifetime patterns."
+                    ),
+                }
+            elif not range_signals:
+                signal_comparison = {"status": "no_range_data", "message": "No signal data in this range."}
+    except Exception:
+        pass
+
     return {
         "range_pnl": round(range_pnl, 6),
         "range_win_rate": range_wr,
@@ -587,6 +840,7 @@ def build_continuity_comparison(start: str, end: str, scope: str) -> dict:
             else "established" if continuity < 80
             else "deep"
         ),
+        "signal_behavior_vs_lifetime": signal_comparison if signal_comparison else None,
     }
 
 
@@ -623,11 +877,31 @@ def build_appendix(start: str, end: str, scope: str, detailed: bool = False) -> 
     except Exception:
         memory_excerpts = []
 
+    # Signal events (v7.6.1)
+    signal_excerpts = []
+    try:
+        from signal_layer import ENABLE_SIGNAL_LAYER
+        if ENABLE_SIGNAL_LAYER:
+            import db as _sdb2
+            sig_events = _sdb2.get_signal_events(limit=200)
+            sig_events = [e for e in sig_events if _in_range(e.get("timestamp", ""), start, end)]
+            for e in sig_events[:20]:
+                signal_excerpts.append({
+                    "timestamp": (e.get("timestamp") or "")[:19],
+                    "signal_type": e.get("signal_type", "unknown"),
+                    "description": (e.get("context") or "")[:100],
+                    "direction": e.get("direction", "neutral"),
+                    "confidence": round(e.get("confidence", 0), 2),
+                })
+    except Exception:
+        pass
+
     return {
         "included": True,
         "key_trades": key_trades[:20],
         "key_journal_entries": journal_excerpts,
         "key_memories": memory_excerpts,
+        "signal_events_recent": signal_excerpts if signal_excerpts else None,
     }
 
 
@@ -698,6 +972,34 @@ def render_text_export(export: dict) -> str:
     lines.append(f"  Noise:       {mc.get('noise_level', 'clear')}")
     lines.append(f"  Crowd:       {mc.get('crowd_bias', 'neutral')} (align: {mc.get('crowd_alignment', 'unclear')})")
     lines.append("")
+
+    # Signal Context (v7.6.1)
+    sc = export.get("signal_context", {})
+    if sc.get("status") == "ok":
+        lines.append("--- Signal Context ---")
+        lines.append(f"  Alignment:   {sc.get('alignment', 'unclear')}")
+        lines.append(f"  Tension:     avg {sc.get('tension_score_avg', 0)}/100, peak {sc.get('tension_score_peak', 0)}/100")
+        cs = sc.get("crowd_summary", {})
+        lines.append(f"  Crowd:       {cs.get('bias', 'no data')} (strength: {cs.get('strength', 0)}, {cs.get('events', 0)} events)")
+        ds = sc.get("derivatives_summary", {})
+        lines.append(f"  Derivatives: {ds.get('description', 'No data')}")
+        ls = sc.get("liquidation_summary", {})
+        lines.append(f"  Liquidation: {ls.get('description', 'No data')}")
+        lines.append(f"  Narrative:   {sc.get('narrative_state', 'calm')}")
+        nd = sc.get("narrative_distribution", {})
+        if nd:
+            lines.append(f"    calm: {nd.get('calm',0)} / building: {nd.get('building',0)} / overheated: {nd.get('overheated',0)} / conflicted: {nd.get('conflicted',0)}")
+        insights = sc.get("key_signal_insights", [])
+        if insights:
+            lines.append(f"  Top Insights:")
+            for ins in insights[:3]:
+                lines.append(f"    [{ins.get('signal_type', '?')}] {ins.get('dominant_direction', '?')} x{ins.get('occurrences', 0)} (str: {ins.get('avg_strength', 0)})")
+        lines.append(f"  Events:      {sc.get('signal_events_in_range', 0)}")
+        lines.append("")
+    elif sc.get("status") == "no_signal_data":
+        lines.append("--- Signal Context ---")
+        lines.append(f"  {sc.get('message', 'Signal layer still warming up.')}")
+        lines.append("")
 
     # Activity Summary
     act = export.get("activity_summary", {})
@@ -785,15 +1087,29 @@ def render_text_export(export: dict) -> str:
     lines.append(f"  WR Improving:  {'Yes' if cc.get('win_rate_improving') else 'Unknown' if cc.get('win_rate_improving') is None else 'No'}")
     lines.append(f"  Identity:      {cc.get('identity_depth', 'thin')}")
     lines.append(f"  Assessment:    {cc.get('assessment', 'Too early.')}")
+    sbvl = cc.get("signal_behavior_vs_lifetime")
+    if sbvl and sbvl.get("alignment_trend"):
+        lines.append(f"  Signal Align:  {sbvl.get('alignment_trend', 'n/a')}")
+        lines.append(f"  Divergence:    {sbvl.get('divergence_trend', 'n/a')}")
+        lines.append(f"  Tension Trend: {sbvl.get('tension_trend', 'n/a')}")
+        lines.append(f"  Signal View:   {sbvl.get('assessment', '')}")
     lines.append("")
 
     # Appendix
     appendix = export.get("appendix", {})
     if appendix.get("included"):
-        lines.append("--- Appendix ---")
+        lines.append("--- Appendix: Key Trades ---")
         for t in (appendix.get("key_trades") or [])[:10]:
             lines.append(f"  #{t.get('trade_id', '?')} {t.get('action', '?')} @ ${t.get('price', 0)} PnL:${t.get('pnl', 0)} [{t.get('strategy', '?')}]")
         lines.append("")
+
+        # Signal events appendix (v7.6.1)
+        sig_appendix = appendix.get("signal_events_recent")
+        if sig_appendix:
+            lines.append("--- Appendix: Signal Events (Recent) ---")
+            for se in sig_appendix[:15]:
+                lines.append(f"  {se.get('timestamp', '?')}  {se.get('signal_type', '?'):20s}  {se.get('direction', '?'):8s}  conf:{se.get('confidence', 0):.2f}  {se.get('description', '')[:60]}")
+            lines.append("")
 
     lines.append("=" * 50)
     lines.append("  Same mind. Same memory. Different window.")
@@ -835,6 +1151,7 @@ def generate_export(review_type: str = "daily", scope: str = "session",
         "header": build_header(review_type, scope, start, end),
         "mind_state": build_mind_state(),
         "market_context": build_market_context(start, end),
+        "signal_context": build_signal_summary(start, end, scope),
         "activity_summary": build_activity_summary(start, end, scope),
         "performance_summary": build_performance_summary(start, end, scope),
         "strategy_breakdown": build_strategy_breakdown(start, end, scope),

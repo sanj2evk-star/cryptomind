@@ -317,6 +317,26 @@ def compute(session_id: int = None) -> dict:
     except Exception:
         pass
 
+    # Signal layer overlay (v7.6)
+    signal_data = {}
+    try:
+        from signal_layer import ENABLE_SIGNAL_LAYER
+        if ENABLE_SIGNAL_LAYER:
+            from signal_layer.signal_aggregator import aggregate
+            agg = aggregate()
+            if agg and not agg.get("warming_up"):
+                composite = agg.get("composite", {})
+                signal_data = {
+                    "alignment": composite.get("alignment", "unclear"),
+                    "tension_score": composite.get("tension_score", 0),
+                    "narrative_state": composite.get("narrative_state", "calm"),
+                    "overall_direction": composite.get("overall_direction", "neutral"),
+                    "summary": composite.get("summary", ""),
+                    "signal_count": agg.get("signal_count", 0),
+                }
+    except Exception:
+        pass
+
     result = {
         "date": today,
         "session_id": sid,
@@ -325,6 +345,7 @@ def compute(session_id: int = None) -> dict:
         "news_vs_price": news_price,
         "posture": posture,
         "crowd_vs_reality": crowd_data if crowd_data else None,
+        "signal_context": signal_data if signal_data else None,
         "warming_up": False,
     }
 

@@ -170,6 +170,32 @@ def compute() -> dict:
     except Exception:
         pass
 
+    # Signal layer overlay (v7.6 — observer-only)
+    signal_overlay = {}
+    try:
+        from signal_layer import ENABLE_SIGNAL_LAYER
+        if ENABLE_SIGNAL_LAYER:
+            from signal_layer.signal_aggregator import aggregate
+            agg = aggregate()
+            if agg and not agg.get("warming_up"):
+                composite = agg.get("composite", {})
+                sig_dir = composite.get("overall_direction", "neutral")
+                # Compare crowd heat vs signal direction
+                crowd_agrees = (
+                    (crowd == "heavily_bullish" and sig_dir == "bullish") or
+                    (crowd == "heavily_bearish" and sig_dir == "bearish") or
+                    (crowd in ("balanced", "leaning_bullish", "leaning_bearish") and sig_dir == "neutral")
+                )
+                signal_overlay = {
+                    "signal_direction": sig_dir,
+                    "signal_alignment": composite.get("alignment", "unclear"),
+                    "signal_tension": composite.get("tension_score", 0),
+                    "crowd_vs_positioning": "aligned" if crowd_agrees else "diverging",
+                    "narrative_state": composite.get("narrative_state", "calm"),
+                }
+    except Exception:
+        pass
+
     _state = {
         "noise_ratio":          round(noise_ratio, 3),
         "level":                level,
@@ -191,6 +217,7 @@ def compute() -> dict:
         "bullish_count":        bullish,
         "bearish_count":        bearish,
         "crowd_sentiment":      crowd_sentiment if crowd_sentiment else None,
+        "signal_layer":         signal_overlay if signal_overlay else None,
         "last_updated":         datetime.now(timezone.utc).isoformat(),
     }
     _last_calc = time.time()

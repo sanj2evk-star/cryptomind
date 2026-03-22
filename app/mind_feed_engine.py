@@ -46,6 +46,10 @@ TYPES = {
     "narration":         {"icon": "◫", "color": "#8b5cf6", "label": "Narration"},
     "crowd_divergence":  {"icon": "⬢", "color": "#f59e0b", "label": "Crowd Signal"},
     "crowd_aligned":     {"icon": "⬡", "color": "#22c55e", "label": "Crowd Signal"},
+    "signal_alignment":  {"icon": "◈", "color": "#22c55e", "label": "Signal"},
+    "signal_divergence": {"icon": "◈", "color": "#f59e0b", "label": "Signal"},
+    "signal_warning":    {"icon": "◈", "color": "#ef4444", "label": "Signal Alert"},
+    "signal_info":       {"icon": "◈", "color": "#3b82f6", "label": "Signal"},
     "system":            {"icon": "◻", "color": "#6b7280", "label": "System"},
 }
 
@@ -260,6 +264,20 @@ def on_crowd_sentiment(feed_items: list[dict]) -> int:
         msg = item.get("message", "")
         det = item.get("detail", "")
         if _add(ft, msg, detail=det):
+            added += 1
+    return added
+
+
+def on_signal_insights(insights: list[dict]) -> int:
+    """Process signal layer insights into feed events. Returns count added."""
+    added = 0
+    for ins in insights:
+        ft = ins.get("type", "signal_info")
+        if ft not in TYPES:
+            ft = "signal_info"
+        title = ins.get("title", "Signal")
+        detail = ins.get("detail", "")
+        if _add(ft, title, detail=detail, meta={"importance": ins.get("importance", 5), "source": ins.get("source", "")}):
             added += 1
     return added
 

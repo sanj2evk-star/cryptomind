@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.5.2 — Observer Core: Review Export + Black Box",
-    version="7.5.2",
+    description="v7.6.1 — Observer Core: Signal Layer + Review Export Integration",
+    version="7.6.1",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -2101,6 +2101,54 @@ def get_crowd_truth():
         }
     except Exception as e:
         return {"evaluations": [], "total": 0, "warming_up": True, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# v7.6: Signal Layer (Observer-Only)
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/signals/latest")
+def get_signals_latest():
+    """Latest aggregated signal snapshot — positioning, crowd, liquidation."""
+    try:
+        from signal_layer import ENABLE_SIGNAL_LAYER
+        if not ENABLE_SIGNAL_LAYER:
+            return {"enabled": False, "signals": [], "warming_up": True}
+        from signal_layer.signal_aggregator import aggregate
+        return aggregate()
+    except Exception as e:
+        return {"enabled": False, "signals": [], "warming_up": True, "error": str(e)}
+
+
+@app.get("/v7/signals/insights")
+def get_signal_insights():
+    """Signal layer insights — human-readable narratives."""
+    try:
+        from signal_layer import ENABLE_SIGNAL_LAYER
+        if not ENABLE_SIGNAL_LAYER:
+            return {"enabled": False, "insights": [], "warming_up": True}
+        from signal_layer.signal_insight_engine import generate_insights
+        insights = generate_insights()
+        return {"enabled": True, "insights": insights, "count": len(insights)}
+    except Exception as e:
+        return {"enabled": False, "insights": [], "warming_up": True, "error": str(e)}
+
+
+@app.get("/v7/signals/history")
+def get_signal_history(
+    limit: int = Query(default=50, ge=1, le=200),
+    source: str = Query(default=None),
+):
+    """Historical signal events from the DB."""
+    try:
+        from signal_layer import ENABLE_SIGNAL_LAYER
+        if not ENABLE_SIGNAL_LAYER:
+            return {"enabled": False, "events": [], "warming_up": True}
+        import db
+        events = db.get_signal_events(limit=limit, source=source)
+        return {"enabled": True, "events": events, "count": len(events)}
+    except Exception as e:
+        return {"enabled": False, "events": [], "warming_up": True, "error": str(e)}
 
 
 # ---------------------------------------------------------------------------

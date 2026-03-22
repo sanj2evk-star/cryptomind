@@ -383,6 +383,8 @@ export default function Lab() {
   const {data:identityD}     = useApi("/v7/mind/identity", 60000);
   const {data:ltPortfolioD}  = useApi("/v7/lifetime/portfolio", 60000);
   const {data:crowdD}        = useApi("/v7/crowd/belief-vs-reality", 30000);
+  const {data:signalsD}      = useApi("/v7/signals/latest", 30000);
+  const {data:sigInsightsD}  = useApi("/v7/signals/insights", 45000);
 
   // Global collapse control: null = use local state, true/false = override
   const [globalCollapse, setGlobalCollapse] = useState(null);
@@ -437,6 +439,11 @@ export default function Lab() {
   const crowdCrowd   = crowd.crowd || {};
   const crowdReality = crowd.reality || {};
   const crowdComp    = crowd.comparison || {};
+
+  const signals      = signalsD || {};
+  const sigComposite = signals.composite || {};
+  const sigInterps   = signals.interpretations || {};
+  const sigInsights  = sigInsightsD?.insights || [];
 
   // Detect warm-up: no mind state data yet, or error
   const isWarmingUp = !mindState || hasError;
@@ -707,6 +714,122 @@ export default function Lab() {
             {crowdComp.reason && (
               <div style={{fontSize:10,color:"var(--text-muted)",marginTop:6,fontStyle:"italic"}}>
                 {crowdComp.reason}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      </Collapsible>
+
+      {/* ── Signal Layer (v7.6) ── */}
+      <Collapsible title="Signal Layer" badge={sigComposite.narrative_state ? `(${sigComposite.narrative_state})` : ""} defaultOpen={true} forceOpen={globalCollapse}>
+      <div style={{borderLeft:`3px solid ${sigComposite.alignment==="aligned"?"#22c55e":sigComposite.alignment==="diverging"?"#f59e0b":"var(--border)"}`,paddingLeft:10}}>
+        <div style={{...LBL,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span>Positioning & Crowd Signals</span>
+          {signals.enabled && <span style={{fontSize:8,color:"var(--text-muted)",fontWeight:400,textTransform:"none"}}>{sigComposite.signal_count||0} signals</span>}
+        </div>
+        {signals.warming_up || !signals.enabled ? (
+          <WarmUp
+            text="Signal layer warming up."
+            sub="Collecting positioning data from derivatives, crowd, and liquidation sources."
+          />
+        ) : (
+          <>
+            {/* One-liner summary */}
+            <div style={{fontSize:12,color:"var(--text)",fontWeight:500,marginBottom:8,fontStyle:"italic"}}>
+              "{sigComposite.summary || "Gathering signal data."}"
+            </div>
+
+            {/* Signal metrics row */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(90px, 1fr))",gap:6,marginBottom:8}}>
+              {/* Direction */}
+              <div style={CARD_COMPACT}>
+                <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:2}}>Direction</div>
+                <div style={{fontSize:14,fontWeight:700,
+                  color:sigComposite.overall_direction==="bullish"?"#22c55e":sigComposite.overall_direction==="bearish"?"#ef4444":"#6b7280",
+                }}>{(sigComposite.overall_direction||"neutral").charAt(0).toUpperCase()+(sigComposite.overall_direction||"neutral").slice(1)}</div>
+              </div>
+              {/* Tension */}
+              <div style={CARD_COMPACT}>
+                <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:2}}>Tension</div>
+                <div style={{fontSize:14,fontWeight:700,
+                  color:(sigComposite.tension_score||0)>60?"#ef4444":(sigComposite.tension_score||0)>35?"#f59e0b":"#22c55e",
+                }}>{sigComposite.tension_score||0}/100</div>
+                <div style={{height:4,borderRadius:3,background:"var(--bg)",marginTop:3}}>
+                  <div style={{
+                    width:`${sigComposite.tension_score||0}%`,height:"100%",borderRadius:3,
+                    transition:"width 0.5s",
+                    background:(sigComposite.tension_score||0)>60?"#ef4444":(sigComposite.tension_score||0)>35?"#f59e0b":"#22c55e",
+                  }}/>
+                </div>
+              </div>
+              {/* Alignment */}
+              <div style={CARD_COMPACT}>
+                <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:2}}>Alignment</div>
+                <div style={{fontSize:12,fontWeight:600,padding:"2px 6px",borderRadius:4,display:"inline-block",
+                  background:sigComposite.alignment==="aligned"?"#22c55e18":sigComposite.alignment==="diverging"?"#f59e0b18":"var(--bg)",
+                  color:sigComposite.alignment==="aligned"?"#22c55e":sigComposite.alignment==="diverging"?"#f59e0b":"var(--text-muted)",
+                }}>{(sigComposite.alignment||"unclear").charAt(0).toUpperCase()+(sigComposite.alignment||"unclear").slice(1)}</div>
+              </div>
+              {/* Narrative */}
+              <div style={CARD_COMPACT}>
+                <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:2}}>Narrative</div>
+                <div style={{fontSize:12,fontWeight:600,
+                  color:sigComposite.narrative_state==="overheated"?"#ef4444":sigComposite.narrative_state==="building"?"#f59e0b":sigComposite.narrative_state==="conflicted"?"#8b5cf6":"#22c55e",
+                }}>{(sigComposite.narrative_state||"calm").charAt(0).toUpperCase()+(sigComposite.narrative_state||"calm").slice(1)}</div>
+              </div>
+            </div>
+
+            {/* Interpretations */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:6,marginBottom:8}}>
+              {sigInterps.positioning && (
+                <div style={CARD_COMPACT}>
+                  <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:3}}>Derivatives Positioning</div>
+                  <div style={{fontSize:11,fontWeight:600,color:sigInterps.positioning.risk_level==="high"||sigInterps.positioning.risk_level==="extreme"?"#ef4444":"var(--text)",marginBottom:2}}>
+                    {sigInterps.positioning.positioning?.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())||"—"}
+                  </div>
+                  <div style={{fontSize:10,color:"var(--text-muted)",lineHeight:1.3}}>{sigInterps.positioning.narrative}</div>
+                  <div style={{fontSize:9,color:sigInterps.positioning.risk_level==="high"?"#ef4444":sigInterps.positioning.risk_level==="extreme"?"#ef4444":"var(--text-muted)",marginTop:3}}>Risk: {sigInterps.positioning.risk_level}</div>
+                </div>
+              )}
+              {sigInterps.crowd && (
+                <div style={CARD_COMPACT}>
+                  <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:3}}>Crowd Conviction</div>
+                  <div style={{fontSize:11,fontWeight:600,color:sigInterps.crowd.crowd_direction==="bullish"?"#22c55e":sigInterps.crowd.crowd_direction==="bearish"?"#ef4444":"var(--text)",marginBottom:2}}>
+                    {sigInterps.crowd.crowd_conviction?.charAt(0).toUpperCase()+sigInterps.crowd.crowd_conviction?.slice(1)||"—"} {sigInterps.crowd.crowd_direction}
+                  </div>
+                  <div style={{fontSize:10,color:"var(--text-muted)",lineHeight:1.3}}>{sigInterps.crowd.narrative}</div>
+                  {sigInterps.crowd.divergence_risk!=="none" && <div style={{fontSize:9,color:"#f59e0b",marginTop:3}}>Divergence: {sigInterps.crowd.divergence_risk}</div>}
+                </div>
+              )}
+              {sigInterps.liquidation && (
+                <div style={CARD_COMPACT}>
+                  <div style={{fontSize:9,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:0.3,marginBottom:3}}>Liquidation</div>
+                  <div style={{fontSize:11,fontWeight:600,color:sigInterps.liquidation.severity==="major"||sigInterps.liquidation.severity==="extreme"?"#ef4444":"var(--text)",marginBottom:2}}>
+                    {sigInterps.liquidation.event_type?.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())||"—"}
+                  </div>
+                  <div style={{fontSize:10,color:"var(--text-muted)",lineHeight:1.3}}>{sigInterps.liquidation.narrative}</div>
+                  <div style={{fontSize:9,color:"var(--text-muted)",marginTop:3}}>~${sigInterps.liquidation.total_liquidated_m||0}M liquidated</div>
+                </div>
+              )}
+            </div>
+
+            {/* Signal Insights */}
+            {sigInsights.length > 0 && (
+              <div style={{marginTop:4}}>
+                <div style={{...LBL,marginBottom:4}}>Signal Insights</div>
+                {sigInsights.slice(0,4).map((ins,i)=>{
+                  const ic = {signal_alignment:"#22c55e",signal_divergence:"#f59e0b",signal_warning:"#ef4444",signal_info:"#3b82f6"}[ins.type]||"#6b7280";
+                  return (
+                    <div key={i} style={{...CARD_COMPACT,borderLeft:`3px solid ${ic}`,marginBottom:4,padding:"6px 10px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <span style={{fontSize:11,fontWeight:600,color:ic}}>{ins.title}</span>
+                        {ins.importance>=7 && <span style={{fontSize:8,color:ic,fontWeight:700}}>HIGH</span>}
+                      </div>
+                      <div style={{fontSize:10,color:"var(--text-muted)",lineHeight:1.3,marginTop:1}}>{ins.detail}</div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </>
