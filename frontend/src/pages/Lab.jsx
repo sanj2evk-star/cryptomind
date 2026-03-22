@@ -11,6 +11,7 @@
  *   3. Observation Stream (filtered external events)
  */
 
+import { useState, useRef, useEffect } from "react";
 import { useApi } from "../hooks/useApi";
 import { fmtLocalTimeShort } from "../hooks/useTime";
 
@@ -18,6 +19,11 @@ const _isTouch = typeof window !== "undefined" &&
   ("ontouchstart" in window || navigator.maxTouchPoints > 0);
 
 export default function Lab() {
+  // "Last observed" liveness tracker
+  const [lastObservedAgo, setLastObservedAgo] = useState("");
+  const lastDataRef = useRef(null);
+  const prevStreamHashRef = useRef("");
+
   // External world data
   const { data: mindState } = useApi("/v7/mind/state", 15000);
   const { data: radarData } = useApi("/v7/mind/radar", 30000);
@@ -52,15 +58,17 @@ export default function Lab() {
       const top = sigInsights[0];
       return top.text || top.message || "Observing. No strong signal.";
     }
-    if (noiseRatio > 0.6) return "Environment is noisy. Signals unreliable.";
-    if (clarity > 65) return "Environment is clear. Signals readable.";
-    if (crowdBias === "bullish" && crowdConf > 0.6) return "Crowd is bullish. Watching for confirmation.";
-    if (crowdBias === "bearish" && crowdConf > 0.6) return "Fear is high. Watching for capitulation signal.";
-    if (fg.value != null && fg.value < 20) return "Extreme fear detected. Historically significant.";
-    if (fg.value != null && fg.value > 80) return "Extreme greed detected. Caution warranted.";
-    if (narrative === "calm") return "No clear narrative forming. Environment quiet.";
-    if (narrative === "conflicted") return "Signals conflicted. No consensus.";
-    return "Gathering observations. Nothing decisive yet.";
+    if (noiseRatio > 0.6) return "Noise dominating. Nothing trustworthy yet.";
+    if (clarity > 65) return "Clear environment. Signals readable.";
+    if (crowdBias === "bullish" && crowdConf > 0.6) return "Crowd leaning bullish. No confirmation yet.";
+    if (crowdBias === "bearish" && crowdConf > 0.6) return "Fear rising, but no follow-through.";
+    if (fg.value != null && fg.value < 20) return "Extreme fear. Historically significant — watching.";
+    if (fg.value != null && fg.value > 80) return "Extreme greed. Historically fragile — watching.";
+    if (narrative === "calm") return "Quiet. No narrative forming.";
+    if (narrative === "conflicted") return "Mixed signals. No consensus.";
+    if (narrative === "building") return "Activity increasing, still directionless.";
+    if (narrative === "overheated") return "Overheated signals. Caution.";
+    return "Observing. Nothing decisive yet.";
   })();
 
   // Build observation stream from feed + signal insights
@@ -137,6 +145,36 @@ export default function Lab() {
     return items.slice(0, 6);
   })();
 
+  // Stream dedup: detect if observations are identical to last render
+  const streamHash = observations.map(o => o.title).join("|");
+  const streamUnchanged = streamHash === prevStreamHashRef.current && streamHash !== "";
+  useEffect(() => { prevStreamHashRef.current = streamHash; }, [streamHash]);
+
+  // Liveness: track when data last changed
+  useEffect(() => {
+    const dataFingerprint = JSON.stringify({ noiseRatio, clarity, narrative, crowdBias, streamHash });
+    if (dataFingerprint !== lastDataRef.current) {
+      lastDataRef.current = dataFingerprint;
+      setLastObservedAgo("just now");
+    }
+    const iv = setInterval(() => {
+      setLastObservedAgo(prev => {
+        if (prev === "just now") return "10s ago";
+        if (prev === "10s ago") return "20s ago";
+        if (prev === "20s ago") return "30s ago";
+        const match = prev.match(/(\d+)s/);
+        if (match) {
+          const s = parseInt(match[1]) + 10;
+          return s >= 60 ? `${Math.floor(s / 60)}m ago` : `${s}s ago`;
+        }
+        const mMatch = prev.match(/(\d+)m/);
+        if (mMatch) return `${parseInt(mMatch[1]) + 1}m ago`;
+        return prev;
+      });
+    }, 10000);
+    return () => clearInterval(iv);
+  }, [noiseRatio, clarity, narrative, crowdBias, streamHash]);
+
   // Snapshot values
   const noiseDisplay = noiseRatio > 0.6 ? "HIGH" : noiseRatio > 0.3 ? "MODERATE" : noiseRatio > 0.1 ? "LOW" : "CLEAR";
   const noiseColor = noiseRatio > 0.6 ? "#ef4444" : noiseRatio > 0.3 ? "#eab308" : "#22c55e";
@@ -195,6 +233,12 @@ export default function Lab() {
         }}>
           "{heroText}"
         </div>
+        {/* Liveness indicator */}
+        {lastObservedAgo && (
+          <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)", opacity: 0.5 }}>
+            Last observed: {lastObservedAgo}
+          </div>
+        )}
       </div>
 
       {/* ═══ 3. OBSERVATION STREAM ═══ */}
@@ -212,6 +256,15 @@ export default function Lab() {
             color: "var(--text-muted)", fontSize: 13,
           }}>
             Quiet. Nothing observed yet.
+          </div>
+        )}
+
+        {streamUnchanged && observations.length > 0 && (
+          <div style={{
+            padding: "8px 0", fontSize: 11, color: "var(--text-muted)",
+            opacity: 0.4, fontStyle: "italic",
+          }}>
+            No new observations.
           </div>
         )}
 
