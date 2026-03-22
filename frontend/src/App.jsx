@@ -10,6 +10,7 @@ import Leaderboard from "./pages/Leaderboard";
 import MemoryPage from "./pages/Memory";
 import MindPage from "./pages/Mind";
 import LabPage from "./pages/Lab";
+import ReviewPage from "./pages/Review";
 
 // ---------------------------------------------------------------------------
 // Health check states: "checking" | "ok" | "down"
@@ -204,6 +205,7 @@ export default function App() {
     { to: "/memory", icon: "🧠", label: "Memory" },
     { to: "/mind", icon: "◈", label: "Mind" },
     { to: "/lab", icon: "⬡", label: "Lab" },
+    { to: "/review", icon: "⬢", label: "Review" },
   ];
 
   // 4. Backend up, logged in → full app
@@ -247,6 +249,7 @@ export default function App() {
           <Route path="/memory" element={<MemoryPage />} />
           <Route path="/mind" element={<MindPage />} />
           <Route path="/lab" element={<LabPage />} />
+          <Route path="/review" element={<ReviewPage />} />
         </Routes>
       </main>
     </div>

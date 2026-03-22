@@ -4,6 +4,64 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.5.2 — Review Export / Black Box System
+**Date:** 2026-03-22
+
+**What changed:**
+
+### Review Export Engine (new module: `review_export_engine.py`)
+- Full structured review export system — daily/weekly/monthly/custom time ranges
+- 12 sections: header, mind_state, market_context, activity_summary, performance_summary, strategy_breakdown, decision_quality, reflection_learning, adaptation_discipline, observer_summary, continuity_comparison, appendix
+- Scope support: session / version / lifetime (independent from time range)
+- Two output modes: summary (compact) and detailed (includes raw appendix)
+- Human-readable text export + structured JSON
+- 60s cache for performance
+- Low-data honesty: explicit warnings when data is thin
+- Continuity preservation: reads from all lifetime-persistent tables, version upgrades are NOT identity resets
+- Date range filtering across all data sources
+
+### API Endpoints
+- `GET /v7/review/export` — full structured JSON export with params: review_type, scope, mode, start_date, end_date
+- `GET /v7/review/export/text` — plain text export (PlainTextResponse) for copy/paste
+
+### Frontend Review Page (`Review.jsx`)
+- New `/review` page in sidebar navigation (⬢ icon)
+- Pill group selectors for review type (Daily/Weekly/Monthly), scope (Session/Version/Lifetime), mode (Summary/Detailed)
+- Generate Review button triggers export
+- Copy to clipboard, Download .txt, Download .json buttons
+- 12-section visual breakdown: Mind State, Market Context, Activity, Performance, Strategy Breakdown table, Decision Quality, Reflection & Learning, Adaptation & Discipline, Observer Summary, Continuity vs Lifetime comparison
+- Low-data warnings displayed prominently
+- Raw text export preview at bottom
+
+### Continuity Design
+- Reads from: trade_ledger, experience_memory, behavior_profile, adaptation_journal, mind_journal_entries, action_reflections, daily_reviews, news_truth_reviews, news_event_analysis, crowd_sentiment_events, lifetime_identity, lifetime_portfolio, milestones
+- Continuity comparison section explicitly compares range vs lifetime metrics
+- Identity depth scoring: thin / forming / established / deep
+- Assessment text: plain language on whether system is improving, repeating, or mixed
+
+### Architecture
+- No DB changes required (reads from existing 33 tables)
+- No execution engine changes
+- No state resets
+- Designed for future weekly/monthly without redesign — only date window differs
+- SPA middleware updated with `/review` path
+
+**What's right:**
+- Clean separation of sections — each builder function is independent
+- Text export is clean, structured, copyable
+- Low-data honesty prevents false confidence
+- Continuity comparison ensures version upgrades don't break identity narrative
+
+**What could be improved:**
+- Custom date range picker not yet in frontend (backend supports it)
+- Appendix in detailed mode could include replay markers
+- Scheduled auto-generation of daily reviews (future)
+- Export history/archive (future)
+
+**Deployment status:** Pending approval
+
+---
+
 ## v7.5.1 — Scope Continuity + Recurring Pattern Detection + Confidence Calibration
 **Date:** 2026-03-22
 

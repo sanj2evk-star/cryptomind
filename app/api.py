@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.5.1 — Observer Core: Patterns + Scope Continuity",
-    version="7.5.1",
+    description="v7.5.2 — Observer Core: Review Export + Black Box",
+    version="7.5.2",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -2101,6 +2101,55 @@ def get_crowd_truth():
 
 
 # ---------------------------------------------------------------------------
+# v7.5.2: Review Export / Black Box System
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/review/export")
+def get_review_export(
+    review_type: str = Query(default="daily", regex="^(daily|weekly|monthly|custom)$"),
+    scope: str = Query(default="session", regex="^(session|version|lifetime)$"),
+    mode: str = Query(default="summary", regex="^(summary|detailed)$"),
+    start_date: str = Query(default=None),
+    end_date: str = Query(default=None),
+):
+    """Generate a review export — daily/weekly/monthly/custom, any scope."""
+    try:
+        import review_export_engine
+        return review_export_engine.generate_export(
+            review_type=review_type, scope=scope, mode=mode,
+            start_date=start_date, end_date=end_date,
+        )
+    except Exception as e:
+        return {
+            "error": str(e),
+            "header": {"review_type": review_type, "scope": scope},
+            "text_export": f"Export failed: {e}",
+        }
+
+
+@app.get("/v7/review/export/text")
+def get_review_text(
+    review_type: str = Query(default="daily", regex="^(daily|weekly|monthly|custom)$"),
+    scope: str = Query(default="session", regex="^(session|version|lifetime)$"),
+    mode: str = Query(default="summary", regex="^(summary|detailed)$"),
+    start_date: str = Query(default=None),
+    end_date: str = Query(default=None),
+):
+    """Get review export as plain text — ready to copy/paste."""
+    try:
+        import review_export_engine
+        export = review_export_engine.generate_export(
+            review_type=review_type, scope=scope, mode=mode,
+            start_date=start_date, end_date=end_date,
+        )
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(content=export.get("text_export", "No export generated."))
+    except Exception as e:
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(content=f"Export failed: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Static frontend serving (production desktop app)
 #
 # Serves the built React frontend so the Electron app can load everything
@@ -2132,7 +2181,7 @@ if _frontend_dir:
     _index_html = _frontend_dir / "index.html"
 
     # Known SPA routes that collide with API endpoints
-    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard", "/memory", "/mind", "/lab"}
+    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard", "/memory", "/mind", "/lab", "/review"}
 
     class SPAMiddleware(BaseHTTPMiddleware):
         """Serve index.html for browser navigation to SPA routes.
