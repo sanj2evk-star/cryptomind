@@ -1611,10 +1611,35 @@ def _loop(user_id: str) -> None:
             cycle = run_cycle(user_id)
             price = cycle.get("price", 0)
             dec = cycle.get("decision", {})
+            portfolio = cycle.get("portfolio", {})
+            indicators = cycle.get("indicators", {})
             print(f"[auto_trader] #{_state['cycle_count']} "
                   f"BTC=${price:,.2f} → {dec.get('action','?')} "
                   f"(score={dec.get('score',0)} conf={dec.get('confidence',0):.0%}) "
-                  f"cash=${cycle.get('portfolio',{}).get('cash',0):.2f}")
+                  f"cash=${portfolio.get('cash',0):.2f}")
+
+            # v7.8.2: Check if Claude insight should be generated
+            try:
+                import claude_insight_engine
+                action = dec.get("action", "HOLD")
+                claude_insight_engine.check_insight_trigger({
+                    "regime": indicators.get("market_state", "SLEEPING"),
+                    "score": dec.get("score", 50),
+                    "confidence": dec.get("confidence", 0),
+                    "price": price,
+                    "trend": indicators.get("trend", "sideways"),
+                    "volatility": indicators.get("volatility", 0),
+                    "equity": portfolio.get("total_equity", 100),
+                    "exposure": portfolio.get("btc_holdings", 0) * price / max(portfolio.get("total_equity", 100), 1) * 100,
+                    "cycle_count": _state["cycle_count"],
+                    "trade_count": portfolio.get("total_trades", 0),
+                    "pnl": portfolio.get("realized_pnl", 0),
+                    "last_action": action,
+                    "trade_just_executed": action in ("BUY", "SELL"),
+                })
+            except Exception as e:
+                pass  # insight engine failure must never affect trading
+
         except Exception as e:
             print(f"[auto_trader] Cycle error: {e}")
             _state["error"] = str(e)

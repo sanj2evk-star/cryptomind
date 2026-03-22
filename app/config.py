@@ -22,7 +22,7 @@ _PERSISTENT_DISK = Path("/var/data")
 DATA_DIR = _PERSISTENT_DISK if _PERSISTENT_DISK.exists() else PROJECT_ROOT / "data"
 
 # -- App version (legacy — session_manager.APP_VERSION is the single source of truth)
-APP_VERSION = "7.8.1"
+APP_VERSION = "7.8.2"
 
 # -- Trading constants --
 SYMBOL = "BTC/USDT"  # default / legacy single-asset
@@ -176,3 +176,13 @@ def get_model() -> str:
         Model identifier string, defaults to claude-sonnet-4-20250514.
     """
     return os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+
+
+def get_insight_model() -> str:
+    """Model for session insights (cheap, fast). Defaults to Haiku."""
+    return os.getenv("CLAUDE_INSIGHT_MODEL", "claude-3-5-haiku-20241022")
+
+
+def get_review_model() -> str:
+    """Model for daily reviews (richer, once per day). Defaults to Sonnet."""
+    return os.getenv("CLAUDE_REVIEW_MODEL", "claude-sonnet-4-20250514")

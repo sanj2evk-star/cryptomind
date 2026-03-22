@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.8.1 — Naming Restructure + Perception Lab",
-    version="7.8.1",
+    description="v7.8.2 — Claude Voice + Reflection Layer",
+    version="7.8.2",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -2069,6 +2069,20 @@ def get_identity_rehydration():
             "identity_depth": 0,
             "warnings": [str(e)],
         }
+
+
+# ---------------------------------------------------------------------------
+# v7.8.2: Claude insight endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/system/insight")
+def get_current_insight():
+    """Latest Claude-generated (or template) insight for hero thought."""
+    try:
+        import claude_insight_engine
+        return claude_insight_engine.get_current_insight()
+    except Exception as e:
+        return {"text": "Observing. Nothing decisive yet.", "source": "error", "error": str(e)}
 
 
 # ---------------------------------------------------------------------------

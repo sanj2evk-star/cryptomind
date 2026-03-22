@@ -319,8 +319,8 @@ export default function EvolutionPage() {
   if (loading && !mind) {
     return (
       <div style={{ padding: 20 }}>
-        <h1 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>Mind</h1>
-        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading mind state...</p>
+        <h1 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>Evolution</h1>
+        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>Loading evolution state...</p>
       </div>
     );
   }
@@ -347,17 +347,17 @@ export default function EvolutionPage() {
         padding: "8px 0", background: "var(--bg)",
         flexWrap: "wrap",
       }}>
-        <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Mind</h1>
+        <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Evolution</h1>
         <span style={{
           padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-          background: `${mindState.color}18`, color: mindState.color,
-          border: `1px solid ${mindState.color}33`,
-        }}>{mindState.label}</span>
+          background: "#8b5cf618", color: "#8b5cf6",
+          border: "1px solid #8b5cf633",
+        }}>{mindLevel.level}</span>
         <span style={{
           padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
           background: `${confColor}18`, color: confColor,
           border: `1px solid ${confColor}33`,
-        }}>{confidence.label}</span>
+        }}>{evidenceStrength.pct}% Evidence</span>
         {/* Mini indicators in header */}
         <div style={{ display: "flex", gap: 8, fontSize: 10, color: "var(--text-muted)", marginLeft: "auto", flexWrap: "wrap", alignItems: "center" }}>
           <span>Score: <b style={{ color: "#8b5cf6" }}>{evolutionScore}</b></span>
@@ -529,9 +529,9 @@ export default function EvolutionPage() {
             </Collapsible>
           )}
 
-          {/* Mind Insights Panel */}
+          {/* Growth Insights Panel */}
           {mindInsights.length > 0 && (
-            <Collapsible title="Mind Insights" defaultOpen={true} forceOpen={globalCollapse}>
+            <Collapsible title="Growth Insights" defaultOpen={true} forceOpen={globalCollapse}>
               <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
                 {mindInsights.map((ins, i) => (
                   <div key={i} style={{ textAlign: "center", minWidth: 60 }}>

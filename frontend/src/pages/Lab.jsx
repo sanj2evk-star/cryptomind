@@ -31,6 +31,7 @@ export default function Lab() {
   const { data: signalsD } = useApi("/v7/signals/latest", 30000);
   const { data: sigInsightsD } = useApi("/v7/signals/insights", 45000);
   const { data: feedData } = useApi("/v7/mind/feed?limit=20", 15000);
+  const { data: insightD } = useApi("/v7/system/insight", 15000);
 
   // Extract state
   const radar = radarData || {};
@@ -51,9 +52,13 @@ export default function Lab() {
 
   const sigInsights = sigInsightsD?.insights || [];
 
-  // Build hero interpretation from real signal data
+  // Build hero interpretation — Claude insight first, then signal data, then fallback
   const heroText = (() => {
-    // Priority: signal insights > radar summary > fallback
+    // Priority 1: Claude-generated insight (if available and from claude source)
+    if (insightD?.text && insightD.source !== "default") {
+      return insightD.text;
+    }
+    // Priority 2: signal insights
     if (sigInsights.length > 0) {
       const top = sigInsights[0];
       return top.text || top.message || "Observing. No strong signal.";

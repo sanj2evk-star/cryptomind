@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS system_state (
     current_market_quality  INTEGER NOT NULL DEFAULT 0,
     last_adaptation_at      TEXT,
     last_daily_review_at    TEXT,
+    insight_state_json      TEXT,
     started_at              TEXT NOT NULL,
     updated_at              TEXT NOT NULL
 );
@@ -858,7 +859,16 @@ def init_db():
         conn.executescript(_SCHEMA)
         # Migrations: add columns to existing tables (safe to re-run)
         _migrate_news_transparency(conn)
+        _migrate_insight_state(conn)
     print(f"[db] Initialized database at {DB_PATH}")
+
+
+def _migrate_insight_state(conn):
+    """Add insight_state_json column to system_state if missing (v7.8.2)."""
+    try:
+        conn.execute("ALTER TABLE system_state ADD COLUMN insight_state_json TEXT")
+    except Exception:
+        pass  # column already exists
 
 
 def _migrate_news_transparency(conn):

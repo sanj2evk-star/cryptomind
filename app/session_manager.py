@@ -22,7 +22,7 @@ from config import DATA_DIR
 # App version — single source of truth
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "7.8.1"
+APP_VERSION = "7.8.2"
 
 # ---------------------------------------------------------------------------
 # Module state
@@ -224,6 +224,19 @@ def initialize() -> dict:
               f"depth={ident.get('identity_depth', 0):.0f}")
     except Exception as e:
         print(f"[session] Identity rehydration error (non-fatal): {e}")
+
+    # 8. v7.8.2: Check if daily review needs generating
+    try:
+        import claude_insight_engine
+        import threading
+        def _check_daily():
+            try:
+                claude_insight_engine.generate_daily_review()
+            except Exception as e:
+                print(f"[session] Daily review error (non-fatal): {e}")
+        threading.Thread(target=_check_daily, daemon=True).start()
+    except Exception:
+        pass
 
     return summary
 

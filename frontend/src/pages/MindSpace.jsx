@@ -54,6 +54,7 @@ export default function Lab() {
   const { data: journalD }     = useApi("/v7/mind/journal", 60000);
   const { data: continuityD }  = useApi("/v7/system/continuity-audit", 120000);
   const { data: sigInsightsD } = useApi("/v7/signals/insights", 45000);
+  const { data: insightD } = useApi("/v7/system/insight", 15000);
 
   const [expanded, setExpanded] = useState(false);
 
@@ -82,10 +83,11 @@ export default function Lab() {
 
   const recentDecs = decisions?.decisions || [];
 
-  // Hero thought — best available narrative
+  // Hero thought — Claude insight first, then session insight, then fallback
+  const claudeInsight = (insightD?.text && insightD.source !== "default") ? insightD.text : "";
   const sessionInsight = mindOverview?.system_age?.session_insight || "";
   const latestReason = recentDecs.length > 0 ? (recentDecs[0].short_summary || "") : "";
-  const heroThought = sessionInsight || reasoning || latestReason || "Gathering data. Waiting for signal.";
+  const heroThought = claudeInsight || sessionInsight || reasoning || latestReason || "Gathering data. Waiting for signal.";
 
   // Transition pulse — what changed between last 2 cycles
   const transitionPulse = (() => {
