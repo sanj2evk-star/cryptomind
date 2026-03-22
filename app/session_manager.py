@@ -43,6 +43,39 @@ def get_version() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Data directory bootstrap (persistent disk support)
+# ---------------------------------------------------------------------------
+
+def _ensure_data_dir() -> None:
+    """Ensure DATA_DIR exists and has essential subdirectories.
+    On first boot with a persistent disk, the directory is empty.
+    Creates required subdirs and copies seed templates if missing."""
+    from config import DATA_DIR, PROJECT_ROOT
+    import shutil
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Essential subdirectories
+    for subdir in ("cache", "charts", "reports", "users", "users/admin"):
+        (DATA_DIR / subdir).mkdir(parents=True, exist_ok=True)
+
+    # Seed files: copy from repo's data/ if missing on persistent disk
+    repo_data = PROJECT_ROOT / "data"
+    seed_files = [
+        "portfolio.json", "strategies.json", "equity.csv",
+        "trades.csv", "decisions.csv",
+    ]
+    for fname in seed_files:
+        dest = DATA_DIR / fname
+        src = repo_data / fname
+        if not dest.exists() and src.exists():
+            shutil.copy2(src, dest)
+            print(f"[session] Seeded {fname} → {dest}")
+
+    print(f"[session] Data directory: {DATA_DIR}")
+
+
+# ---------------------------------------------------------------------------
 # Startup — called once from api.py startup
 # ---------------------------------------------------------------------------
 
@@ -63,6 +96,9 @@ def initialize() -> dict:
 
     _boot_time = time.time()
     summary = {"version": APP_VERSION, "action": "unknown"}
+
+    # 0. Ensure data directory exists + seed files on persistent disk
+    _ensure_data_dir()
 
     # 1. Init DB
     db.init_db()

@@ -13,9 +13,13 @@ from dotenv import load_dotenv
 
 # -- Paths --
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 ENV_PATH = PROJECT_ROOT / ".env"
+
+# Data directory: use Render persistent disk if mounted, otherwise project-relative.
+# /var/data is the Render persistent disk mount — files here survive deploys.
+_PERSISTENT_DISK = Path("/var/data")
+DATA_DIR = _PERSISTENT_DISK if _PERSISTENT_DISK.exists() else PROJECT_ROOT / "data"
 
 # -- App version (legacy — session_manager.APP_VERSION is the single source of truth)
 APP_VERSION = "7.7.3"
