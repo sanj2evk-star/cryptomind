@@ -21,6 +21,7 @@ import { fmtLocalTimeShort } from "../hooks/useTime";
 import { Loading, ErrorBox, EmptyState } from "../components/StatusMessage";
 import MetricCard from "../components/MetricCard";
 import ScopeToggle from "../components/ScopeToggle";
+import ChartContainer from "../components/ChartContainer";
 
 const _isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
 
@@ -226,11 +227,10 @@ export default function Performance() {
               ))}
             </div>
 
-            {/* Equity curve */}
-            <div className="chart-wrap" style={{ marginBottom: 12 }}>
-              <h3 style={{ margin: "0 0 6px", fontSize: 12, color: "var(--text-muted)" }}>Equity Curve</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={pts} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+            {/* Equity curve — Safari-safe via ChartContainer */}
+            <ChartContainer height={_isTouch ? 240 : 260} expandable title="Equity Curve">
+              {({ width, height }) => (
+                <AreaChart width={width} height={height} data={pts} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                   <defs>
                     <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
@@ -245,20 +245,18 @@ export default function Performance() {
                     labelFormatter={ts => { try { return new Date(ts).toLocaleString(); } catch { return ts; } }}
                     formatter={(v, name) => [`$${Number(v).toFixed(4)}`, name === "equity" ? "Equity" : name === "organic_equity" ? "Organic" : name]}
                   />
-                  <Area type="monotone" dataKey="equity" stroke="#3b82f6" fill="url(#eqGrad)" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="organic_equity" stroke="#8b5cf6" strokeWidth={1} strokeDasharray="4 3" dot={false} />
-                  <Line type="monotone" dataKey="peak" stroke="#22c55e33" strokeWidth={1} strokeDasharray="2 4" dot={false} />
-                  {/* Refill markers */}
+                  <Area type="monotone" dataKey="equity" stroke="#3b82f6" fill="url(#eqGrad)" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="organic_equity" stroke="#8b5cf6" strokeWidth={1} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="peak" stroke="#22c55e33" strokeWidth={1} strokeDasharray="2 4" dot={false} isAnimationActive={false} />
                   {refills.map((r, i) => (
                     <ReferenceLine key={`r${i}`} x={r.timestamp} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: "$", fill: "#f59e0b", fontSize: 10, position: "top" }} />
                   ))}
-                  {/* Version markers */}
                   {versions.map((v, i) => (
                     <ReferenceLine key={`v${i}`} x={v.timestamp} stroke="#8b5cf644" strokeDasharray="5 5" label={{ value: `v${v.version}`, fill: "#8b5cf6", fontSize: 8, position: "insideTopRight" }} />
                   ))}
                 </AreaChart>
-              </ResponsiveContainer>
-            </div>
+              )}
+            </ChartContainer>
 
             {/* Drawdown chart (collapsible) */}
             <div style={{ marginBottom: 12 }}>
@@ -269,9 +267,9 @@ export default function Performance() {
                 {showDrawdown ? "▼" : "▶"} Drawdown Chart
               </button>
               {showDrawdown && (
-                <div className="chart-wrap">
-                  <ResponsiveContainer width="100%" height={140}>
-                    <AreaChart data={pts} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                <ChartContainer height={160}>
+                  {({ width, height }) => (
+                    <AreaChart width={width} height={height} data={pts} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                       <defs>
                         <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4}/>
@@ -285,10 +283,10 @@ export default function Performance() {
                         contentStyle={{ background: "#1a1d27", border: "1px solid #2a2d3a", fontSize: 11 }}
                         formatter={(v) => [`${Number(v).toFixed(2)}%`, "Drawdown"]}
                       />
-                      <Area type="monotone" dataKey="drawdown_pct" stroke="#ef4444" fill="url(#ddGrad)" strokeWidth={1.5} dot={false} />
+                      <Area type="monotone" dataKey="drawdown_pct" stroke="#ef4444" fill="url(#ddGrad)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                     </AreaChart>
-                  </ResponsiveContainer>
-                </div>
+                  )}
+                </ChartContainer>
               )}
             </div>
           </>
