@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.6.2 — Continuity / Amnesia Audit + Fix",
-    version="7.6.2",
+    description="v7.6.3 — Web-Only + Runtime Status",
+    version="7.6.3",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.

@@ -18,7 +18,7 @@ PROMPTS_DIR = PROJECT_ROOT / "prompts"
 ENV_PATH = PROJECT_ROOT / ".env"
 
 # -- App version (legacy — session_manager.APP_VERSION is the single source of truth)
-APP_VERSION = "7.6.2"
+APP_VERSION = "7.6.3"
 
 # -- Trading constants --
 SYMBOL = "BTC/USDT"  # default / legacy single-asset
