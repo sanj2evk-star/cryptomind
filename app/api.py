@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.7.2 — Time-Based Trade History + Migration Audit",
-    version="7.7.2",
+    description="v7.7.3 — Equity Curve + Drawdown Layer",
+    version="7.7.3",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -2069,6 +2069,233 @@ def get_identity_rehydration():
             "identity_depth": 0,
             "warnings": [str(e)],
         }
+
+
+# ---------------------------------------------------------------------------
+# v7.7.3: Equity Curve + Drawdown
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/performance/equity")
+def get_equity_curve(
+    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly|today|yesterday|range)$"),
+    start: str = Query(default=None),
+    end: str = Query(default=None),
+    max_points: int = Query(default=400, ge=10, le=2000),
+):
+    """Equity curve time-series with drawdown, scoped and downsampled."""
+    try:
+        import db as v7db
+        import session_manager
+
+        sid = session_manager.get_session_id()
+        version = session_manager.APP_VERSION
+
+        raw_points = v7db.get_equity_curve_by_scope(
+            scope=scope, session_id=sid, version=version,
+            start_date=start, end_date=end, max_points=max_points,
+        )
+
+        if not raw_points:
+            return {
+                "points": [], "stats": {}, "scope": scope,
+                "warming_up": True,
+                "message": "Not enough equity history yet",
+            }
+
+        # Compute cumulative capital injected up to each timestamp
+        refill_events = v7db.get_refill_events_in_range(
+            raw_points[0].get("timestamp"), raw_points[-1].get("timestamp")
+        )
+        initial_funding = 100.0  # INITIAL_BALANCE
+        try:
+            cap = v7db.get_capital_summary() or {}
+            initial_funding = cap.get("initial_funding") or 100.0
+        except Exception:
+            pass
+
+        # Build cumulative refill map
+        cumulative_injected = initial_funding
+        refill_idx = 0
+        refill_timestamps = []
+        for r in refill_events:
+            refill_timestamps.append((r.get("timestamp", ""), r.get("amount", 0)))
+
+        # Compute drawdown + organic equity for each point
+        running_peak = 0.0
+        max_dd_pct = 0.0
+        max_dd_abs = 0.0
+        max_dd_start_ts = None
+        max_dd_trough_ts = None
+        dd_duration_points = 0
+        max_dd_duration_points = 0
+        underwater_count = 0
+        trough_equity = float("inf")
+
+        points = []
+        for p in raw_points:
+            eq = p.get("equity") or 0
+            ts = p.get("timestamp", "")
+
+            # Track cumulative capital injected up to this point
+            while refill_idx < len(refill_timestamps) and refill_timestamps[refill_idx][0] <= ts:
+                cumulative_injected += refill_timestamps[refill_idx][1]
+                refill_idx += 1
+
+            organic_eq = round(eq - cumulative_injected + initial_funding, 4)
+
+            # Running peak + drawdown
+            if eq > running_peak:
+                running_peak = eq
+                dd_duration_points = 0
+            dd_abs = round(running_peak - eq, 4)
+            dd_pct = round((dd_abs / running_peak * 100) if running_peak > 0 else 0, 2)
+
+            if eq < running_peak:
+                underwater_count += 1
+                dd_duration_points += 1
+                if dd_duration_points > max_dd_duration_points:
+                    max_dd_duration_points = dd_duration_points
+
+            if dd_pct > max_dd_pct:
+                max_dd_pct = dd_pct
+                max_dd_abs = dd_abs
+                max_dd_trough_ts = ts
+
+            if eq < trough_equity:
+                trough_equity = eq
+
+            points.append({
+                "timestamp": ts,
+                "equity": round(eq, 4),
+                "organic_equity": organic_eq,
+                "cash": round(p.get("cash") or 0, 4),
+                "btc_value": p.get("btc_value", 0),
+                "peak": round(running_peak, 4),
+                "drawdown_pct": dd_pct,
+                "drawdown_abs": dd_abs,
+            })
+
+        start_eq = points[0]["equity"] if points else 0
+        end_eq = points[-1]["equity"] if points else 0
+        time_underwater_pct = round(underwater_count / max(len(points), 1) * 100, 1)
+        current_dd_pct = points[-1]["drawdown_pct"] if points else 0
+
+        # Estimate drawdown duration in hours (30s per cycle)
+        max_dd_duration_hours = round(max_dd_duration_points * 30 / 3600, 1)
+
+        # Get markers
+        version_transitions = v7db.get_version_transitions_in_range(
+            points[0]["timestamp"] if points else None,
+            points[-1]["timestamp"] if points else None,
+        )
+        # Filter to transitions within window
+        vt_in_window = [
+            v for v in version_transitions
+            if points and v.get("started_at", "") >= points[0]["timestamp"]
+        ]
+
+        stats = {
+            "start_equity": round(start_eq, 4),
+            "end_equity": round(end_eq, 4),
+            "peak_equity": round(running_peak, 4),
+            "trough_equity": round(trough_equity, 4) if trough_equity != float("inf") else 0,
+            "max_drawdown_pct": max_dd_pct,
+            "max_drawdown_abs": max_dd_abs,
+            "max_drawdown_duration_hours": max_dd_duration_hours,
+            "current_drawdown_pct": current_dd_pct,
+            "time_underwater_pct": time_underwater_pct,
+            "pnl_change": round(end_eq - start_eq, 4),
+            "total_capital_injected": round(cumulative_injected, 4),
+            "organic_pnl": round(end_eq - cumulative_injected, 4),
+            "total_points": len(points),
+            "scope": scope,
+        }
+
+        return {
+            "points": points,
+            "stats": stats,
+            "scope": scope,
+            "refill_markers": [{"timestamp": r[0], "amount": r[1]} for r in refill_timestamps[:refill_idx]],
+            "version_markers": [
+                {"timestamp": v.get("started_at"), "version": v.get("app_version")}
+                for v in vt_in_window
+            ],
+            "warming_up": False,
+        }
+
+    except Exception as e:
+        return {
+            "points": [], "stats": {}, "scope": scope,
+            "warming_up": True, "error": str(e),
+        }
+
+
+@app.get("/v7/performance/drawdown")
+def get_drawdown_stats(
+    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly|today|yesterday|range)$"),
+    start: str = Query(default=None),
+    end: str = Query(default=None),
+):
+    """Drawdown summary stats (lighter than full equity curve)."""
+    try:
+        # Reuse equity endpoint logic but return stats only
+        import db as v7db
+        import session_manager
+
+        sid = session_manager.get_session_id()
+        version = session_manager.APP_VERSION
+
+        raw_points = v7db.get_equity_curve_by_scope(
+            scope=scope, session_id=sid, version=version,
+            start_date=start, end_date=end, max_points=2000,
+        )
+
+        if not raw_points:
+            return {"warming_up": True, "message": "Not enough data", "scope": scope}
+
+        peak = 0.0
+        max_dd_pct = 0.0
+        max_dd_abs = 0.0
+        underwater = 0
+        dd_run = 0
+        max_dd_run = 0
+
+        for p in raw_points:
+            eq = p.get("equity") or 0
+            if eq > peak:
+                peak = eq
+                dd_run = 0
+            dd = peak - eq
+            dd_p = (dd / peak * 100) if peak > 0 else 0
+            if dd_p > max_dd_pct:
+                max_dd_pct = round(dd_p, 2)
+                max_dd_abs = round(dd, 4)
+            if eq < peak:
+                underwater += 1
+                dd_run += 1
+                if dd_run > max_dd_run:
+                    max_dd_run = dd_run
+
+        start_eq = raw_points[0].get("equity", 0)
+        end_eq = raw_points[-1].get("equity", 0)
+        current_dd = round((peak - end_eq) / peak * 100, 2) if peak > 0 else 0
+
+        return {
+            "scope": scope,
+            "start_equity": round(start_eq, 4),
+            "end_equity": round(end_eq, 4),
+            "peak_equity": round(peak, 4),
+            "max_drawdown_pct": max_dd_pct,
+            "max_drawdown_abs": max_dd_abs,
+            "max_drawdown_duration_hours": round(max_dd_run * 30 / 3600, 1),
+            "current_drawdown_pct": current_dd,
+            "time_underwater_pct": round(underwater / max(len(raw_points), 1) * 100, 1),
+            "pnl_change": round(end_eq - start_eq, 4),
+            "total_points": len(raw_points),
+            "warming_up": False,
+        }
+    except Exception as e:
+        return {"warming_up": True, "error": str(e), "scope": scope}
 
 
 @app.get("/v7/trades/scoped")

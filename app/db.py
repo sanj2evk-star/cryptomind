@@ -3127,6 +3127,93 @@ def get_trade_stats_by_scope(scope: str = "session", session_id: int = None,
 
 
 # ---------------------------------------------------------------------------
+# Equity curve + drawdown helpers (v7.7.3)
+# ---------------------------------------------------------------------------
+
+def get_equity_curve_by_scope(scope: str = "session", session_id: int = None,
+                               version: str = None, start_date: str = None,
+                               end_date: str = None, max_points: int = 400,
+                               ) -> list[dict]:
+    """Get equity time-series from cycle_snapshots, scoped and downsampled.
+
+    Returns list of dicts with: timestamp, equity, cash, btc_value, price.
+    Downsampled to max_points via uniform sampling.
+    """
+    where, params = _scope_to_where(scope, session_id, version, start_date, end_date)
+    if where == "__INVALID__":
+        return []
+
+    with get_db() as conn:
+        q_where = f" {where}" if where else ""
+        rows = conn.execute(
+            f"""SELECT timestamp, equity, cash, holdings_btc, price, session_id
+                FROM cycle_snapshots{q_where}
+                ORDER BY snapshot_id ASC""",
+            params
+        ).fetchall()
+
+        if not rows:
+            return []
+
+        points = [dict(r) for r in rows]
+
+        # Downsample if too many points
+        if len(points) > max_points:
+            step = max(1, len(points) // max_points)
+            sampled = points[::step]
+            # Always include the last point
+            if sampled[-1] != points[-1]:
+                sampled.append(points[-1])
+            points = sampled
+
+        # Compute btc_value for each point
+        for p in points:
+            btc = p.get("holdings_btc") or 0
+            price = p.get("price") or 0
+            p["btc_value"] = round(btc * price, 4)
+
+        return points
+
+
+def get_refill_events_in_range(start_ts: str = None, end_ts: str = None) -> list[dict]:
+    """Get refill events within a time range (for chart markers)."""
+    with get_db() as conn:
+        if start_ts and end_ts:
+            rows = conn.execute(
+                """SELECT timestamp, amount, balance_after, reason
+                   FROM capital_ledger
+                   WHERE event_type = 'refill' AND timestamp >= ? AND timestamp <= ?
+                   ORDER BY timestamp ASC""",
+                (start_ts, end_ts)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT timestamp, amount, balance_after, reason
+                   FROM capital_ledger WHERE event_type = 'refill'
+                   ORDER BY timestamp ASC"""
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_version_transitions_in_range(start_ts: str = None, end_ts: str = None) -> list[dict]:
+    """Get version session boundaries within a time range (for chart markers)."""
+    with get_db() as conn:
+        if start_ts and end_ts:
+            rows = conn.execute(
+                """SELECT session_id, app_version, started_at, closed_at
+                   FROM version_sessions
+                   WHERE started_at >= ? OR (closed_at IS NOT NULL AND closed_at >= ?)
+                   ORDER BY session_id ASC""",
+                (start_ts, start_ts)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT session_id, app_version, started_at, closed_at FROM version_sessions ORDER BY session_id ASC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
 # crowd_sentiment_events helpers (v7.5 Crowd Sentiment)
 # ---------------------------------------------------------------------------
 

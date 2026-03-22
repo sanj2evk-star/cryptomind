@@ -4,6 +4,55 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.7.3 — Equity Curve + Drawdown Layer
+**Date:** 2026-03-22
+
+### What It Does
+Visualization + analysis layer for equity and drawdown. The system can now answer: "How painful was my journey, not just how profitable?"
+
+### Backend
+**`app/db.py`** — new helpers:
+- `get_equity_curve_by_scope()` — queries `cycle_snapshots`, supports all 9 scopes, uniform downsampling to `max_points` (default 400)
+- `get_refill_events_in_range()` — for chart refill markers
+- `get_version_transitions_in_range()` — for chart version markers
+
+**`app/api.py`** — new endpoints:
+- `GET /v7/performance/equity` — full equity curve with drawdown, organic equity, refill/version markers
+- `GET /v7/performance/drawdown` — lightweight drawdown stats only
+
+### Equity Curve Data Point Shape
+```
+{timestamp, equity, organic_equity, cash, btc_value, peak, drawdown_pct, drawdown_abs}
+```
+
+### Summary Stats
+- start_equity, end_equity, peak_equity, trough_equity
+- max_drawdown_pct, max_drawdown_abs, max_drawdown_duration_hours
+- current_drawdown_pct
+- time_underwater_pct
+- total_capital_injected, organic_pnl
+- pnl_change
+
+### Frontend (`Performance.jsx`)
+- **Equity Curve Chart**: AreaChart with gradient fill, organic equity as dashed purple line, peak as faint green line
+- **Refill markers**: vertical dashed amber lines with "$" label (mandatory — prevents misreading jumps)
+- **Version markers**: subtle purple dashed lines when version transition exists in visible window
+- **Drawdown Chart**: collapsible AreaChart (red gradient). Default open on desktop, closed on iPad
+- **9 Summary Cards**: Start/End/Peak/MaxDD/DD Duration/Underwater%/Capital In/Organic P&L/Current DD
+- Warm-up message when insufficient data
+
+### Key Design Decisions (team-aligned)
+- Drawdown computed in Python, not SQL (transparent, debuggable)
+- Downsampling: uniform `points[::step]`, always includes last point
+- organic_equity = equity - cumulative_capital_injected (time-aware, not global)
+- Refill markers mandatory (truth preservation)
+- Version markers conditional (only if transition exists in visible window)
+- Drawdown duration tracked in hours (estimated from cycle count × 30s)
+
+### No Trading Logic Changed
+
+---
+
 ## v7.7.2 — Time-Based Trade History + Migration Audit
 **Date:** 2026-03-22
 
