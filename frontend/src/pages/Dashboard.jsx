@@ -78,9 +78,9 @@ function InlineMetric({ label, value, color }) {
 
 export default function Dashboard() {
   const { data: live, loading: lLoad, error: lErr, retry: rLive } = useApi("/live", 5000);
-  const { data: autoTrades, retry: rTrades } = useApi("/v7/trades/scoped?scope=session&limit=15", 10000);
+  const { data: autoTrades, retry: rTrades } = useApi("/v7/trades/scoped?scope=lifetime&limit=15", 10000);
   const { data: recentDecisions } = useApi("/v7/decisions/recent?limit=8", 10000);
-  const { data: autoEquity, retry: rEquity } = useApi("/v7/performance/equity?scope=session&max_points=100", 15000);
+  const { data: autoEquity, retry: rEquity } = useApi("/v7/performance/equity?scope=lifetime&max_points=100", 15000);
   const { data: aiPerf } = useApi("/ai-performance", 30000);
   const { data: adaptive } = useApi("/adaptive", 15000);
   const { data: sysAge } = useApi("/v7/system-age", 10000);
@@ -195,7 +195,8 @@ export default function Dashboard() {
   const btc = Number(portfolio.btc_holdings ?? 0);
   const equity = Number(portfolio.total_equity ?? 0);
   const realizedPnl = Number(portfolio.realized_pnl ?? 0);
-  const totalTrades = Number(portfolio.total_trades ?? 0);
+  // Trade count from DB (scoped stats) — single source of truth
+  const totalTrades = autoTrades?.stats?.total ?? Number(portfolio.total_trades ?? 0);
   const avgEntry = Number(portfolio.avg_entry_price ?? 0);
   const unrealizedPnl = btc > 0 && avgEntry > 0 ? (price - avgEntry) * btc : 0;
   const totalPnl = realizedPnl + unrealizedPnl;
