@@ -2072,6 +2072,31 @@ def get_identity_rehydration():
 
 
 # ---------------------------------------------------------------------------
+# v7.7.3-fix: Recent Decisions (cycle_snapshots — includes HOLDs)
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/decisions/recent")
+def get_recent_decisions(limit: int = Query(default=10, ge=1, le=50)):
+    """Recent cycle decisions from cycle_snapshots — includes HOLDs.
+    Shows the system is alive and thinking, even when not trading."""
+    try:
+        import db as v7db
+        with v7db.get_db() as conn:
+            rows = conn.execute(
+                """SELECT timestamp, price, decision_action, decision_score,
+                          decision_confidence, regime, dominant_strategy,
+                          short_summary, equity, cash, holdings_btc
+                   FROM cycle_snapshots
+                   ORDER BY snapshot_id DESC LIMIT ?""",
+                (limit,)
+            ).fetchall()
+            decisions = [dict(r) for r in rows]
+            return {"decisions": decisions, "total": len(decisions)}
+    except Exception as e:
+        return {"decisions": [], "total": 0, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
 # v7.7.3: Equity Curve + Drawdown
 # ---------------------------------------------------------------------------
 

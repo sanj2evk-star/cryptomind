@@ -79,6 +79,7 @@ function InlineMetric({ label, value, color }) {
 export default function Dashboard() {
   const { data: live, loading: lLoad, error: lErr, retry: rLive } = useApi("/live", 5000);
   const { data: autoTrades, retry: rTrades } = useApi("/v7/trades/scoped?scope=session&limit=15", 10000);
+  const { data: recentDecisions } = useApi("/v7/decisions/recent?limit=8", 10000);
   const { data: autoEquity, retry: rEquity } = useApi("/v7/performance/equity?scope=session&max_points=100", 15000);
   const { data: aiPerf } = useApi("/ai-performance", 30000);
   const { data: adaptive } = useApi("/adaptive", 15000);
@@ -805,6 +806,47 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* ── Recent Decisions (includes HOLDs — shows system is alive) ── */}
+      {recentDecisions?.decisions?.length > 0 && (
+        <div className="card" style={{ marginTop: 8, padding: "8px 12px" }}>
+          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>
+            Recent Decisions
+          </div>
+          <div style={{ maxHeight: isTouch ? 160 : 180, overflowY: "auto" }}>
+            {recentDecisions.decisions.map((d, i) => {
+              const action = (d.decision_action || "HOLD").toUpperCase();
+              const isBuy = action === "BUY";
+              const isSell = action === "SELL";
+              const isHold = action === "HOLD";
+              return (
+                <div key={i} style={{
+                  display: "flex", gap: 8, alignItems: "center",
+                  padding: "3px 0", borderBottom: "1px solid var(--border)",
+                  opacity: isHold ? 0.5 : 1, fontSize: 11,
+                }}>
+                  <span style={{ fontSize: 9, color: "var(--text-muted)", minWidth: 42 }}>
+                    {fmtLocalTimeShort(d.timestamp)}
+                  </span>
+                  <span style={{
+                    padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 700,
+                    background: isBuy ? "#22c55e22" : isSell ? "#ef444422" : "#6b728015",
+                    color: isBuy ? "#22c55e" : isSell ? "#ef4444" : "#6b7280",
+                    minWidth: 32, textAlign: "center",
+                  }}>{action}</span>
+                  <span style={{ color: "var(--text)", fontSize: 10 }}>{fmtPrice(d.price)}</span>
+                  <span style={{ fontSize: 9, color: "var(--text-muted)" }}>
+                    S:{d.decision_score?.toFixed(0) || "—"}
+                  </span>
+                  <span style={{ fontSize: 9, color: "var(--text-muted)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {d.short_summary || d.regime || ""}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Portfolio Manager Drawer */}
       <PortfolioDrawer
