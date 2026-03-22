@@ -4,6 +4,55 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.8.0 — Lab Redesign: The Mind Space
+**Date:** 2026-03-23
+
+### Philosophy
+Lab is no longer a dashboard. It's a window into a thinking mind. You watch it, you don't operate it.
+
+### New Structure (top to bottom, no scroll needed for first 3)
+
+**1. Identity Line** — compact, no card
+`CryptoMind · v7.8.0 · 49 cycles · Confidence: Low · Clarity: 62% · Early`
+
+**2. Hero Thought** — large typography, center stage
+The most important thing the mind is thinking right now. Sources: session_insight > reasoning > short_summary.
+
+**3. Transition Pulse** — micro-update dot
+"Conviction rising" / "Signal weakening" / "No change" — derived from last 2 cycle scores.
+
+**4. Glance Grid** — 4 fields, readable from 5 feet
+`Regime | Edge | Action | Score` — color-coded, large font.
+
+**5. Thought Stream** — timeline of cycle decisions
+Each entry: time, action badge, score, thought text. HOLDs at 50% opacity. No cards, no borders, spacing-based.
+
+**6. Expand Mind** — deep content behind a single button
+Reveals: internal state (thoughts/concerns/opportunities), signal insights, belief vs reality, personality, context, journal, continuity health.
+
+### What Was Removed
+- 20+ collapsible sections
+- Dense card-based layout
+- Fear & Greed gauge
+- News feed / interesting / rejected
+- Replay timeline
+- Milestones
+- Radar bars
+- Trait bars
+- All stacked panel UI
+
+All that data still exists in the API. It's just behind "Expand Mind" or available on other pages.
+
+### Voice
+Short, observational, honest. "No edge. Staying out." Not "I feel uncertain about market conditions."
+
+### Files
+- `frontend/src/pages/Lab.jsx` — complete rewrite (1344 lines → ~290 lines)
+
+### No Trading Logic Changed
+
+---
+
 ## v7.7.3-fix — Frontend Wiring: Single Source of Truth
 **Date:** 2026-03-22
 
