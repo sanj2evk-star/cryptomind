@@ -4,6 +4,48 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.7.2 — Time-Based Trade History + Migration Audit
+**Date:** 2026-03-22
+
+### New Scopes Added
+| Scope | Behavior |
+|-------|----------|
+| `today` | Today 00:00 UTC → now |
+| `yesterday` | Yesterday 00:00 → today 00:00 UTC |
+| `range` | Custom: `start` → `end` (YYYY-MM-DD or ISO) |
+| `daily` | Last 24h (existing) |
+| `weekly` | Last 7 days (existing) |
+| `monthly` | Last 30 days (existing) |
+
+### API Examples
+```
+/v7/trades/scoped?scope=today
+/v7/trades/scoped?scope=yesterday
+/v7/trades/scoped?scope=range&start=2026-03-15&end=2026-03-22
+/v7/performance/scoped?scope=weekly
+/v7/journal/scoped?scope=today
+/v7/system/migration-audit
+```
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `app/db.py` | Unified `_scope_to_where()` handles all 9 scopes; `get_trades_by_scope` + `get_trade_stats_by_scope` accept `start_date`/`end_date` params |
+| `app/api.py` | `/v7/trades/scoped`, `/v7/performance/scoped`, `/v7/journal/scoped` all accept today/yesterday/range + start/end; `GET /v7/system/migration-audit` (read-only) |
+| `frontend/src/pages/Trades.jsx` | Time filter bar (Today/Yesterday/7D/30D/Lifetime + date picker); group-by-day in Feed view; scoped stats show range label |
+
+### Migration Audit (read-only)
+`GET /v7/system/migration-audit` scans CSV sources and reports:
+- total rows, BUY/SELL count, HOLD count
+- classification: `executable_trades` or `decision_history`
+- `import_recommended`: true only if real BUY/SELL trades exist
+- Does NOT insert any data
+
+### No Trading Logic Changed
+No strategy, signal, or execution logic modified.
+
+---
+
 ## v7.7.1 — Identity Rehydration Layer
 **Date:** 2026-03-22
 

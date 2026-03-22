@@ -185,7 +185,7 @@ export default function Trades() {
   // State
   const [viewMode, setViewMode] = useState("table"); // table | feed
   const [showHold, setShowHold] = useState(false);
-  const [scope, setScope] = useState("session"); // session | version | lifetime
+  const [scope, setScope] = useState("session"); // session | version | lifetime | today | yesterday | weekly | monthly | range
   const [debugMode, setDebugMode] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
   const [trades, setTrades] = useState([]);
@@ -202,10 +202,21 @@ export default function Trades() {
   const [filterEntry, setFilterEntry] = useState("");
   const [filterResult, setFilterResult] = useState(""); // win / loss
 
+  // Time-based filter state (v7.7.2)
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [activePreset, setActivePreset] = useState(""); // today | yesterday | weekly | monthly
+  const scopeUrl = useMemo(() => {
+    if (scope === "range" && startDate && endDate) {
+      return `/v7/trades/scoped?scope=range&start=${startDate}&end=${endDate}&limit=5`;
+    }
+    return `/v7/trades/scoped?scope=${scope}&limit=5`;
+  }, [scope, startDate, endDate]);
+
   // Summary
   const { data: summary } = useApi("/auto/trades/summary", 30000);
   const { data: sysAge } = useApi("/v7/system-age", 30000);
-  const { data: scopedStats } = useApi(`/v7/trades/scoped?scope=${scope}&limit=5`, 30000);
+  const { data: scopedStats } = useApi(scopeUrl, 30000);
 
   // Fetch trades
   const fetchTrades = useCallback(async (reset = false) => {
@@ -282,6 +293,22 @@ export default function Trades() {
     return Array.from(set);
   }, [trades]);
 
+  // Group trades by local date (v7.7.2)
+  const groupedByDay = useMemo(() => {
+    const groups = {};
+    for (const t of filteredTrades) {
+      const ts = t.timestamp || t.time || "";
+      let dateKey = "Unknown";
+      try {
+        const d = new Date(ts);
+        dateKey = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+      } catch {}
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(t);
+    }
+    return Object.entries(groups);
+  }, [filteredTrades]);
+
   if (loading && trades.length === 0) {
     return <><h1>Trade History</h1><Loading message="Loading trade ledger..." /></>;
   }
@@ -310,14 +337,67 @@ export default function Trades() {
         </div>
       </div>
 
-      {/* Scoped Stats */}
+      {/* ── v7.7.2: Time Filter Bar ── */}
+      <div style={{
+        display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap",
+        padding: "6px 10px", marginBottom: 6,
+        background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6,
+      }}>
+        {/* Preset buttons */}
+        {[
+          { key: "today", label: "Today" },
+          { key: "yesterday", label: "Yesterday" },
+          { key: "weekly", label: "7D" },
+          { key: "monthly", label: "30D" },
+          { key: "lifetime", label: "Lifetime" },
+        ].map(p => (
+          <button key={p.key} onClick={() => {
+            setScope(p.key); setActivePreset(p.key); setStartDate(""); setEndDate("");
+          }} style={{
+            padding: "3px 10px", fontSize: 10, fontWeight: 600, cursor: "pointer",
+            borderRadius: 4, border: "1px solid var(--border)",
+            background: scope === p.key ? "#3b82f6" : "var(--bg)",
+            color: scope === p.key ? "#fff" : "var(--text-muted)",
+          }}>{p.label}</button>
+        ))}
+
+        {/* Separator */}
+        <span style={{ width: 1, height: 18, background: "var(--border)", margin: "0 4px" }} />
+
+        {/* Date range inputs */}
+        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+          style={{ padding: "2px 6px", fontSize: 10, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", outline: "none" }}
+        />
+        <span style={{ fontSize: 10, color: "var(--text-muted)" }}>→</span>
+        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+          style={{ padding: "2px 6px", fontSize: 10, borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", outline: "none" }}
+        />
+        <button onClick={() => {
+          if (startDate && endDate) { setScope("range"); setActivePreset("range"); }
+        }} disabled={!startDate || !endDate} style={{
+          padding: "3px 10px", fontSize: 10, fontWeight: 600, cursor: "pointer",
+          borderRadius: 4, border: "none",
+          background: scope === "range" ? "#3b82f6" : "#3b82f644",
+          color: "#fff", opacity: (!startDate || !endDate) ? 0.4 : 1,
+        }}>Apply</button>
+
+        {/* Reset */}
+        {scope !== "session" && (
+          <button onClick={() => { setScope("session"); setActivePreset(""); setStartDate(""); setEndDate(""); }}
+            style={{ padding: "3px 8px", fontSize: 9, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+            Reset
+          </button>
+        )}
+      </div>
+
+      {/* Scoped Stats + Range Label */}
       {scopedStats?.stats && (
         <div style={{
           display: "flex", gap: 16, padding: "4px 10px", marginBottom: 6,
           background: "var(--surface)", border: "1px solid var(--border)",
           borderRadius: 6, fontSize: 10, flexWrap: "wrap",
         }}>
-          <span>Scope: <b style={{color:"var(--text)"}}>{scope}</b></span>
+          <span>Scope: <b style={{color:"var(--text)"}}>{scope === "range" && startDate && endDate ? `${startDate} → ${endDate}` : scope}</b></span>
           <span>Trades: <b>{scopedStats.stats.total||0}</b></span>
           <span>Wins: <b style={{color:"var(--green)"}}>{scopedStats.stats.wins||0}</b></span>
           <span>Losses: <b style={{color:"var(--red)"}}>{scopedStats.stats.losses||0}</b></span>
@@ -482,45 +562,57 @@ export default function Trades() {
         </div>
       )}
 
-      {/* ═══ LIVE FEED VIEW ═══ */}
+      {/* ═══ LIVE FEED VIEW (grouped by day) ═══ */}
       {viewMode === "feed" && filteredTrades.length > 0 && (
         <div className="card" style={{ padding: "8px 12px", maxHeight: 500, overflowY: "auto" }}>
-          {filteredTrades.map((t, i) => {
-            const action = (t.action || "HOLD").toUpperCase();
-            const pnl = parseFloat(t.pnl) || 0;
-            const stratColor = STRAT_COLORS[(t.strategy || "").toUpperCase()] || "#6b7280";
-            const isHold = action === "HOLD";
-            return (
-              <div key={i} style={{
-                padding: "5px 0",
-                borderBottom: "1px solid var(--border)",
-                opacity: isHold ? 0.5 : 1,
-                fontSize: 12,
-                display: "flex", gap: 8, alignItems: "center",
+          {groupedByDay.map(([dateLabel, dayTrades]) => (
+            <div key={dateLabel}>
+              {/* Day header */}
+              <div style={{
+                padding: "6px 0 3px", fontSize: 11, fontWeight: 700,
+                color: "#8b5cf6", borderBottom: "1px solid var(--border)",
+                marginTop: 4,
               }}>
-                <span style={{ fontSize: 10, color: "var(--text-muted)", minWidth: 45 }}>
-                  {fmtLocalTimeShort(t.timestamp)}
-                </span>
-                <span className={`tag ${action.toLowerCase()}`} style={{ minWidth: 32, textAlign: "center" }}>{action}</span>
-                <span>{fmtPrice(t.price)}</span>
-                {action !== "HOLD" && (
-                  <span style={{ color: stratColor, fontSize: 10, fontWeight: 600 }}>
-                    {(t.strategy || "").slice(0, 6)}
-                  </span>
-                )}
-                <EntryTag type={t.entry_type} />
-                {action === "SELL" && <PnlValue pnl={pnl} size="small" />}
-                {isHold && t.reason && (
-                  <span style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic" }}>
-                    — {(t.reason || "no edge").slice(0, 40)}
-                  </span>
-                )}
-                <span style={{ fontSize: 9, color: "var(--text-muted)", marginLeft: "auto" }}>
-                  S:{t.score || "—"}
-                </span>
+                {dateLabel} <span style={{ fontWeight: 400, color: "var(--text-muted)", fontSize: 10 }}>({dayTrades.length} trades)</span>
               </div>
-            );
-          })}
+              {dayTrades.map((t, i) => {
+                const action = (t.action || "HOLD").toUpperCase();
+                const pnl = parseFloat(t.pnl) || 0;
+                const stratColor = STRAT_COLORS[(t.strategy || "").toUpperCase()] || "#6b7280";
+                const isHold = action === "HOLD";
+                return (
+                  <div key={i} style={{
+                    padding: "5px 0",
+                    borderBottom: "1px solid var(--border)",
+                    opacity: isHold ? 0.5 : 1,
+                    fontSize: 12,
+                    display: "flex", gap: 8, alignItems: "center",
+                  }}>
+                    <span style={{ fontSize: 10, color: "var(--text-muted)", minWidth: 45 }}>
+                      {fmtLocalTimeShort(t.timestamp)}
+                    </span>
+                    <span className={`tag ${action.toLowerCase()}`} style={{ minWidth: 32, textAlign: "center" }}>{action}</span>
+                    <span>{fmtPrice(t.price)}</span>
+                    {action !== "HOLD" && (
+                      <span style={{ color: stratColor, fontSize: 10, fontWeight: 600 }}>
+                        {(t.strategy || "").slice(0, 6)}
+                      </span>
+                    )}
+                    <EntryTag type={t.entry_type} />
+                    {action === "SELL" && <PnlValue pnl={pnl} size="small" />}
+                    {isHold && t.reason && (
+                      <span style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic" }}>
+                        — {(t.reason || "no edge").slice(0, 40)}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 9, color: "var(--text-muted)", marginLeft: "auto" }}>
+                      S:{t.score || "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
       )}
 

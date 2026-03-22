@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.7.1 — Identity Rehydration Layer",
-    version="7.7.1",
+    description="v7.7.2 — Time-Based Trade History + Migration Audit",
+    version="7.7.2",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -1983,6 +1983,79 @@ def get_rehydration_status():
 # v7.7.1: Identity rehydration endpoint
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# v7.7.2: Migration audit (read-only — reports data, does NOT insert)
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/system/migration-audit")
+def get_migration_audit():
+    """Scan historical data sources and report what exists. Does NOT import anything."""
+    import csv as _csv
+    from pathlib import Path
+    from config import DATA_DIR
+
+    result = {
+        "csv_sources": [],
+        "db_trade_count": 0,
+        "import_recommended": False,
+    }
+
+    try:
+        import db as v7db
+        with v7db.get_db() as conn:
+            result["db_trade_count"] = conn.execute(
+                "SELECT COUNT(*) as c FROM trade_ledger"
+            ).fetchone()["c"]
+    except Exception:
+        pass
+
+    # Scan for CSV files
+    csv_candidates = [
+        DATA_DIR / "users" / "admin" / "auto_trades.csv",
+    ]
+    # Also check for any other *.csv in data/
+    try:
+        for f in DATA_DIR.glob("*.csv"):
+            if f not in csv_candidates:
+                csv_candidates.append(f)
+    except Exception:
+        pass
+
+    for csv_path in csv_candidates:
+        if not csv_path.exists():
+            continue
+        try:
+            total = 0
+            buy_sell = 0
+            hold = 0
+            with open(csv_path, "r", newline="", encoding="utf-8") as f:
+                reader = _csv.DictReader(f)
+                for row in reader:
+                    total += 1
+                    action = (row.get("action") or "").strip().upper()
+                    if action in ("BUY", "SELL"):
+                        buy_sell += 1
+                    elif action == "HOLD":
+                        hold += 1
+            result["csv_sources"].append({
+                "path": str(csv_path.relative_to(DATA_DIR)),
+                "total_rows": total,
+                "buy_sell_count": buy_sell,
+                "hold_count": hold,
+                "classification": "executable_trades" if buy_sell > 0 else "decision_history",
+                "import_recommended": buy_sell > 0,
+            })
+            if buy_sell > 0:
+                result["import_recommended"] = True
+        except Exception as e:
+            result["csv_sources"].append({
+                "path": str(csv_path.relative_to(DATA_DIR)),
+                "error": str(e),
+            })
+
+    return result
+
+
 @app.get("/v7/system/identity-rehydration")
 def get_identity_rehydration():
     """Current rehydrated identity — confidence, skills, behavior, maturity, continuity."""
@@ -2000,10 +2073,13 @@ def get_identity_rehydration():
 
 @app.get("/v7/trades/scoped")
 def get_scoped_trades(
-    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly)$"),
+    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly|today|yesterday|range)$"),
     limit: int = Query(default=50, ge=1, le=200),
+    start: str = Query(default=None, description="Start date (YYYY-MM-DD or ISO) for scope=range"),
+    end: str = Query(default=None, description="End date (YYYY-MM-DD or ISO) for scope=range"),
 ):
-    """Trades filtered by scope: session, version, or lifetime."""
+    """Trades filtered by scope. Supports time-based scopes: today, yesterday, range.
+    For scope=range, provide start and end params (YYYY-MM-DD or full ISO)."""
     try:
         import db as v7db
         import session_manager
@@ -2012,10 +2088,12 @@ def get_scoped_trades(
         version = session_manager.APP_VERSION
 
         trades, total = v7db.get_trades_by_scope(
-            scope=scope, session_id=sid, version=version, limit=limit
+            scope=scope, session_id=sid, version=version, limit=limit,
+            start_date=start, end_date=end,
         )
         stats = v7db.get_trade_stats_by_scope(
-            scope=scope, session_id=sid, version=version
+            scope=scope, session_id=sid, version=version,
+            start_date=start, end_date=end,
         )
 
         return {
@@ -2066,9 +2144,11 @@ def get_mind_patterns():
 
 @app.get("/v7/performance/scoped")
 def get_performance_scoped(
-    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly)$"),
+    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly|today|yesterday|range)$"),
+    start: str = Query(default=None, description="Start date for scope=range"),
+    end: str = Query(default=None, description="End date for scope=range"),
 ):
-    """Performance stats filtered by scope: session, version, or lifetime."""
+    """Performance stats filtered by scope. Supports today, yesterday, range."""
     try:
         import db as v7db
         import session_manager
@@ -2077,7 +2157,8 @@ def get_performance_scoped(
         version = session_manager.APP_VERSION
 
         stats = v7db.get_trade_stats_by_scope(
-            scope=scope, session_id=sid, version=version
+            scope=scope, session_id=sid, version=version,
+            start_date=start, end_date=end,
         )
         return {"stats": stats, "scope": scope}
     except Exception as e:
@@ -2086,10 +2167,12 @@ def get_performance_scoped(
 
 @app.get("/v7/journal/scoped")
 def get_journal_scoped(
-    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly)$"),
+    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly|today|yesterday|range)$"),
     limit: int = Query(default=30, ge=1, le=100),
+    start: str = Query(default=None, description="Start date for scope=range"),
+    end: str = Query(default=None, description="End date for scope=range"),
 ):
-    """Journal entries filtered by scope. Uses trade_ledger for scoped data."""
+    """Journal entries filtered by scope. Supports today, yesterday, range."""
     try:
         import db as v7db
         import session_manager
@@ -2098,10 +2181,12 @@ def get_journal_scoped(
         version = session_manager.APP_VERSION
 
         trades, total = v7db.get_trades_by_scope(
-            scope=scope, session_id=sid, version=version, limit=limit
+            scope=scope, session_id=sid, version=version, limit=limit,
+            start_date=start, end_date=end,
         )
         stats = v7db.get_trade_stats_by_scope(
-            scope=scope, session_id=sid, version=version
+            scope=scope, session_id=sid, version=version,
+            start_date=start, end_date=end,
         )
         return {
             "entries": trades,

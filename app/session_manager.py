@@ -22,7 +22,7 @@ from config import DATA_DIR
 # App version — single source of truth
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "7.7.1"
+APP_VERSION = "7.7.2"
 
 # ---------------------------------------------------------------------------
 # Module state
