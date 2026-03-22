@@ -600,6 +600,9 @@ export default function Lab() {
               <StatBox label="Continuity" value={`${identity.continuity_score||0}%`} color="#8b5cf6"/>
               <StatBox label="Memories" value={identity.total_memories||0}/>
               <StatBox label="Version" value={identity.current_version||"?"}/>
+              {identity.maturity_level && <StatBox label="Maturity" value={identity.maturity_level} color="#f59e0b"/>}
+              {identity.identity_depth > 0 && <StatBox label="Identity Depth" value={`${identity.identity_depth.toFixed(0)}%`} color="#8b5cf6"/>}
+              {identity.confidence_label && <StatBox label="Confidence" value={identity.confidence_label} color={identity.confidence_score >= 65 ? "#22c55e" : identity.confidence_score >= 45 ? "#3b82f6" : "#6b7280"}/>}
             </div>
           )}
           {identity.dominant_traits?.dominant && (

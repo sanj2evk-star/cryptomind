@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.7.0 — Lifetime Rehydration + Capital Continuity",
-    version="7.7.0",
+    description="v7.7.1 — Identity Rehydration Layer",
+    version="7.7.1",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -1723,6 +1723,22 @@ def get_identity():
         except Exception:
             pass
 
+        # v7.7.1: Enrich with rehydrated identity
+        maturity_level = "seed"
+        identity_depth = 0.0
+        confidence_label = "Very Low"
+        confidence_score = 0
+        try:
+            import identity_rehydration_engine
+            ident = identity_rehydration_engine.get_identity()
+            maturity_level = ident.get("maturity_level", {}).get("level", "seed")
+            identity_depth = ident.get("identity_depth", 0.0)
+            conf = ident.get("confidence_state", {})
+            confidence_label = conf.get("label", "Very Low")
+            confidence_score = conf.get("score", 0)
+        except Exception:
+            pass
+
         return {
             "first_seen_at":      identity.get("first_seen_at"),
             "total_cycles":       lt_cycles,
@@ -1736,6 +1752,11 @@ def get_identity():
             "total_memories":     total_memories,
             "updated_at":         identity.get("updated_at"),
             "warming_up":         lt_cycles < 10,
+            # v7.7.1 identity fields
+            "maturity_level":     maturity_level,
+            "identity_depth":     identity_depth,
+            "confidence_label":   confidence_label,
+            "confidence_score":   confidence_score,
         }
     except Exception as e:
         return {"error": str(e), "warming_up": True, "total_cycles": 0}
@@ -1955,6 +1976,25 @@ def get_rehydration_status():
             "error": str(e),
             "sources_used": [],
             "sources_empty": [],
+        }
+
+
+# ---------------------------------------------------------------------------
+# v7.7.1: Identity rehydration endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/system/identity-rehydration")
+def get_identity_rehydration():
+    """Current rehydrated identity — confidence, skills, behavior, maturity, continuity."""
+    try:
+        import identity_rehydration_engine
+        return identity_rehydration_engine.get_identity()
+    except Exception as e:
+        return {
+            "rehydration_status": "error",
+            "error": str(e),
+            "identity_depth": 0,
+            "warnings": [str(e)],
         }
 
 

@@ -22,7 +22,7 @@ from config import DATA_DIR
 # App version — single source of truth
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "7.7.0"
+APP_VERSION = "7.7.1"
 
 # ---------------------------------------------------------------------------
 # Module state
@@ -176,6 +176,18 @@ def initialize() -> dict:
     if not bstate:
         db.upsert_behavior_state(_current_session_id, cycle_number=0)
         print(f"[session] Created default behavior state (v7.1)")
+
+    # 7. v7.7.1: Identity rehydration — restore behavior/confidence/skills from history
+    #    Runs AFTER default profile/state creation so it can overwrite defaults
+    try:
+        import identity_rehydration_engine
+        ident = identity_rehydration_engine.force_rehydrate_identity()
+        print(f"[session] Identity: {ident.get('rehydration_status', '?')} "
+              f"maturity={ident.get('maturity_level', {}).get('level', '?')} "
+              f"continuity={ident.get('continuity_score', 0):.0f} "
+              f"depth={ident.get('identity_depth', 0):.0f}")
+    except Exception as e:
+        print(f"[session] Identity rehydration error (non-fatal): {e}")
 
     return summary
 
@@ -755,6 +767,23 @@ def get_continuity_audit() -> dict:
     except Exception:
         pass
 
+    # Identity rehydration (v7.7.1)
+    id_rh_status = "unknown"
+    id_rh_depth = 0.0
+    id_rh_maturity = "unknown"
+    id_rh_confidence = 0
+    id_rh_continuity = 0.0
+    try:
+        import identity_rehydration_engine
+        ident = identity_rehydration_engine.get_identity()
+        id_rh_status = ident.get("rehydration_status", "unknown")
+        id_rh_depth = ident.get("identity_depth", 0.0)
+        id_rh_maturity = ident.get("maturity_level", {}).get("level", "unknown")
+        id_rh_confidence = ident.get("confidence_state", {}).get("score", 0)
+        id_rh_continuity = ident.get("continuity_score", 0.0)
+    except Exception:
+        pass
+
     # Capital summary (v7.7.0)
     cap_summary = db.get_capital_summary() or {}
     refill_count = cap_summary.get("total_events", 0) or 0
@@ -794,4 +823,10 @@ def get_continuity_audit() -> dict:
         "rehydrated_at": rh_at,
         "capital_events_count": refill_count,
         "last_version_transition": last_transition,
+        # v7.7.1 identity rehydration fields
+        "identity_rehydration_status": id_rh_status,
+        "identity_depth": id_rh_depth,
+        "identity_maturity": id_rh_maturity,
+        "identity_confidence": id_rh_confidence,
+        "identity_continuity": id_rh_continuity,
     }

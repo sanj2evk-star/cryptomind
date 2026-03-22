@@ -4,6 +4,51 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.7.1 — Identity Rehydration Layer
+**Date:** 2026-03-22
+
+### Goal
+Make the live mind behave like the same being across restarts and version updates. Rehydrate not just data, but active identity: confidence, skills, behavior tendencies, maturity, learning momentum.
+
+### New: `app/identity_rehydration_engine.py`
+Reconstructs active mind identity from lifetime evidence on startup.
+
+**What it rehydrates:**
+| Component | How Rebuilt | Source |
+|-----------|------------|--------|
+| **Behavior profile** | Copies from most recent non-default prior session profile | `behavior_profile` table |
+| **Behavior state** | Carries forward market/system state from prior session | `behavior_states` table |
+| **Continuity score** | Evidence-based (0-100): cycles, trades, sessions, memories, reviews, adaptations | All data tables |
+| **Maturity level** | Classified: seed / early / established / mature / veteran | cycle + trade counts |
+| **Confidence state** | Computed from `mind_evolution.compute_global_confidence()` (already lifetime-scoped) | trade outcomes, sessions, memory |
+| **Skill state** | Computed from `mind_evolution.compute_skill_breakdown()` (already lifetime-scoped) | trade history, adaptations |
+| **Learning state** | Memory depth, review count, reflection count, latest insight | experience_memory, daily_reviews |
+| **Identity depth** | Composite: 40% continuity + 30% confidence + 30% data richness | Derived |
+
+**Startup sequence:**
+1. `lifetime_rehydration_engine.force_rehydrate()` (v7.7.0 — data layer)
+2. Create default behavior_profile + behavior_state (seed defaults)
+3. `identity_rehydration_engine.force_rehydrate_identity()` (**NEW** — overwrites seed defaults with lifetime history)
+
+**Key fix:** Behavior profile no longer resets to 0.5 on every version upgrade. It carries forward from the most recent session that had non-default values.
+
+### Modified Files
+| File | Change |
+|------|--------|
+| `app/session_manager.py` | Calls `identity_rehydration_engine.force_rehydrate_identity()` after default creation; continuity-audit extended with 5 identity fields |
+| `app/api.py` | `GET /v7/system/identity-rehydration` endpoint; `/v7/mind/identity` enriched with maturity_level, identity_depth, confidence_label |
+| `frontend/src/pages/Mind.jsx` | Fetches `/v7/mind/identity`; shows maturity badge + continuity % in stats |
+| `frontend/src/pages/Lab.jsx` | Identity card shows maturity, identity depth, confidence label |
+| `app/config.py` | Version → 7.7.1 |
+
+### Safety
+- No fabrication: if data is empty, reports "seed" / "empty" honestly
+- No counter inflation: persisted scores only increase (anti-reduction guardrail in db.py)
+- No strategy logic changes: only loads existing behavior parameters from history
+- No signal influence: signal_events read as observer context only
+
+---
+
 ## v7.7.0 — Lifetime Rehydration + Capital Continuity Layer
 **Date:** 2026-03-22
 

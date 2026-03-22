@@ -285,6 +285,7 @@ export default function MindPage() {
   const { data: timelineData } = useApi("/v7/mind/timeline", 60000);
   const { data: historyData } = useApi("/v7/mind/history?limit=50", 60000);
   const { data: patternsData } = useApi("/v7/mind/patterns", 60000);
+  const { data: identityData } = useApi("/v7/mind/identity", 60000);
   const [tab, setTab] = useState("overview");
   const [globalCollapse, setGlobalCollapse] = useState(null);
   const expandAll = () => setGlobalCollapse(true);
@@ -411,6 +412,12 @@ export default function MindPage() {
           <div><div style={{ fontWeight: 600, color: "var(--text)", fontSize: 13 }}>{mind?.system_age?.total_trades || 0}</div>trades</div>
           <div><div style={{ fontWeight: 600, color: "var(--text)", fontSize: 13 }}>{(mind?.system_age?.total_hours || 0).toFixed(1)}</div>hours</div>
           <div><div style={{ fontWeight: 600, color: "#8b5cf6", fontSize: 13 }}>v{mind?.system_age?.version || "?"}</div>version</div>
+          {identityData?.maturity_level && identityData.maturity_level !== "seed" && (
+            <div><div style={{ fontWeight: 600, color: "#f59e0b", fontSize: 12, textTransform: "capitalize" }}>{identityData.maturity_level}</div>maturity</div>
+          )}
+          {identityData?.continuity_score > 0 && (
+            <div><div style={{ fontWeight: 600, color: "var(--text)", fontSize: 13 }}>{identityData.continuity_score.toFixed(0)}%</div>continuity</div>
+          )}
         </div>
       </div>
 
