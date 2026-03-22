@@ -51,7 +51,7 @@
       {
         "from": "../data",
         "to": "data",
-        "filter": ["**/*"]
+        "filter": ["**/*", "!cryptomind.db", "!cryptomind.db-shm", "!cryptomind.db-wal", "!*.db", "!*.db-shm", "!*.db-wal"]
       },
       {
         "from": "../.env",

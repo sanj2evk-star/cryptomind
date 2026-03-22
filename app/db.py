@@ -2714,11 +2714,21 @@ def get_lifetime_identity() -> dict | None:
 
 
 def upsert_lifetime_identity(**kwargs) -> None:
-    """Update or create the lifetime identity singleton."""
+    """Update or create the lifetime identity singleton.
+
+    GUARDRAIL: Never reduce total_cycles, total_trades, or total_sessions.
+    If caller passes a lower value than what's stored, the stored value is kept.
+    """
     now = datetime.now(timezone.utc).isoformat()
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM lifetime_identity WHERE id = 1").fetchone()
+        existing = conn.execute("SELECT * FROM lifetime_identity WHERE id = 1").fetchone()
         if existing:
+            # Guardrail: never reduce counters
+            for counter in ("total_cycles", "total_trades", "total_sessions"):
+                if counter in kwargs:
+                    stored = existing[counter] or 0
+                    if kwargs[counter] < stored:
+                        kwargs[counter] = stored  # keep the higher value
             sets = ", ".join(f"{k} = ?" for k in kwargs)
             vals = list(kwargs.values())
             conn.execute(f"UPDATE lifetime_identity SET {sets}, updated_at = ? WHERE id = 1",
@@ -2954,13 +2964,22 @@ def get_lifetime_portfolio() -> dict | None:
 
 def upsert_lifetime_portfolio(**kwargs) -> None:
     """Update or create the lifetime portfolio singleton.
-    On INSERT, cash MUST be explicitly provided — no hidden $100 fallback."""
+    On INSERT, cash MUST be explicitly provided — no hidden $100 fallback.
+
+    GUARDRAIL: Never reduce total_trades, total_wins, total_losses, or peak_equity.
+    """
     now = datetime.now(timezone.utc).isoformat()
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM lifetime_portfolio WHERE id = 1").fetchone()
+        existing = conn.execute("SELECT * FROM lifetime_portfolio WHERE id = 1").fetchone()
         if existing:
             if not kwargs:
                 return  # nothing to update
+            # Guardrail: never reduce cumulative counters
+            for counter in ("total_trades", "total_wins", "total_losses", "peak_equity"):
+                if counter in kwargs:
+                    stored = existing[counter] or 0
+                    if kwargs[counter] < stored:
+                        kwargs[counter] = stored  # keep the higher value
             sets = ", ".join(f"{k} = ?" for k in kwargs)
             vals = list(kwargs.values())
             conn.execute(f"UPDATE lifetime_portfolio SET {sets}, updated_at = ? WHERE id = 1",

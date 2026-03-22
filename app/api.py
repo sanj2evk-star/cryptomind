@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.6.1 — Observer Core: Signal Layer + Review Export Integration",
-    version="7.6.1",
+    description="v7.6.2 — Continuity / Amnesia Audit + Fix",
+    version="7.6.2",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -2101,6 +2101,20 @@ def get_crowd_truth():
         }
     except Exception as e:
         return {"evaluations": [], "total": 0, "warming_up": True, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# v7.6.2: Continuity Diagnostic
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/system/continuity-audit")
+def get_continuity_audit():
+    """Full continuity health diagnostic — DB path, table counts, warnings."""
+    try:
+        import session_manager
+        return session_manager.get_continuity_audit()
+    except Exception as e:
+        return {"continuity_health": "error", "error": str(e), "warnings": [str(e)]}
 
 
 # ---------------------------------------------------------------------------

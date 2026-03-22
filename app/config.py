@@ -17,8 +17,8 @@ DATA_DIR = PROJECT_ROOT / "data"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 ENV_PATH = PROJECT_ROOT / ".env"
 
-# -- App version --
-APP_VERSION = "7.4.0"
+# -- App version (legacy — session_manager.APP_VERSION is the single source of truth)
+APP_VERSION = "7.6.2"
 
 # -- Trading constants --
 SYMBOL = "BTC/USDT"  # default / legacy single-asset

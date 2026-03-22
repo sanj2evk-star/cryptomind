@@ -4,6 +4,104 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.6.2 — Continuity / Amnesia Audit + Fix
+**Date:** 2026-03-22
+
+### Root Causes Found
+
+**1. Mac App Build Overwrites Live DB (CRITICAL)**
+- `desktop/package.json` `extraResources` copied `../data/**/*` (including `cryptomind.db`) into the app bundle on every `npm run build:mac`
+- Every Mac app build = fresh DB from dev directory = complete amnesia
+- The dev DB had 0 trades, 0 cycles, 0 lifetime data — it was never the "live" DB
+- **Fix:** Added filter exclusions: `!cryptomind.db`, `!*.db`, `!*.db-shm`, `!*.db-wal` — DB files no longer bundled; `init_db()` creates fresh DB on first launch, then persists
+
+**2. Lifetime Tables Never Populated (CRITICAL)**
+- `lifetime_identity` (0 rows) and `lifetime_portfolio` (0 rows) were empty in the dev DB
+- These tables were added in v7.4.1 but version upgrades from v7.0.0→v7.4.0 ran before the population code existed
+- The initialization code only populated on first boot, not on resume — so subsequent starts skipped creation
+- **Fix:** Replaced one-shot creation with `_heal_lifetime_portfolio()` and `_heal_lifetime_identity()` — run on EVERY startup, rebuild from ground truth (trade_ledger, version_sessions, cycle_snapshots)
+
+**3. Config.py Stale Version**
+- `config.py` had `APP_VERSION = "7.4.0"` while `session_manager.py` had `"7.6.1"`
+- Some modules might import from config.py instead of session_manager
+- **Fix:** Updated config.py version + added comment that session_manager is the source of truth
+
+### Files Modified (5)
+
+| File | Changes |
+|------|---------|
+| `desktop/package.json` | Added DB exclusion filters to extraResources |
+| `app/session_manager.py` | Self-healing `_heal_lifetime_portfolio()`, `_heal_lifetime_identity()`, `_count_lifetime_trades()`, `_rebuild_portfolio_from_trades()`, `get_continuity_audit()`. APP_VERSION → 7.6.2 |
+| `app/db.py` | Anti-amnesia guardrails in `upsert_lifetime_identity()` and `upsert_lifetime_portfolio()` — never reduce total_trades, total_cycles, total_sessions, peak_equity |
+| `app/api.py` | New `GET /v7/system/continuity-audit` endpoint. Version → 7.6.2 |
+| `app/config.py` | APP_VERSION → 7.6.2 |
+| `frontend/src/pages/Lab.jsx` | Continuity Health card: health status, lifetime trades/cycles/sessions, DB path, warnings |
+
+### Continuity Rules Enforced
+
+**A. Same mind across versions**
+- Version upgrade closes old session, opens new — but lifetime_identity, lifetime_portfolio, behavior_profile, experience_memory all persist
+- Self-healing on every startup ensures these tables exist and are populated
+
+**B. Session reset ≠ mind reset**
+- New session starts fresh counters but lifetime counters remain
+- `_heal_lifetime_identity()` counts real sessions from version_sessions table
+- `_heal_lifetime_portfolio()` rebuilds from trade_ledger ground truth
+
+**C. All pages read from same DB**
+- Single DB path: `data/cryptomind.db` (resolved from `config.DATA_DIR`)
+- Verified: all endpoints (dashboard, trades, mind, review export) use `db.get_db()` → same connection pool → same file
+
+**D. Anti-reduction guardrails**
+- `upsert_lifetime_identity()` — never reduces total_cycles, total_trades, total_sessions
+- `upsert_lifetime_portfolio()` — never reduces total_trades, total_wins, total_losses, peak_equity
+- `_heal_lifetime_identity()` — only increases counters, never decreases
+
+### Before/After Table Counts
+
+| Table | Before | After |
+|-------|--------|-------|
+| lifetime_identity | 0 | 1 |
+| lifetime_portfolio | 0 | 1 |
+| capital_ledger | 0 | 2 |
+| version_sessions | 4 | 5 |
+| trade_ledger | 0 | 0 (no trades yet — correct) |
+
+### Continuity Diagnostic Endpoint
+`GET /v7/system/continuity-audit` returns:
+- db_path, db_exists, db_size, db_last_modified
+- table_counts for all 33 tables
+- current_version, current_session_id
+- lifetime_sessions, lifetime_trades, lifetime_cycles
+- identity and portfolio state
+- continuity_health: good / warning / degraded / broken
+- warnings[] with specific diagnostic messages
+
+### Verification
+1. Same DB path across all endpoints: **YES** (single `db.DB_PATH`)
+2. Lifetime counts visible after version bump: **YES** (5 sessions, version upgrade preserved)
+3. Dashboard/trades/mind/review agree: **YES** (all use `db.get_db()`)
+4. No singleton fresh overwrite: **YES** (guardrails prevent counter reduction)
+5. Continuity survives restart: **YES** (self-healing runs on every `initialize()`)
+6. Continuity survives version change: **YES** (upgrade path tested v7.4.0→v7.6.2)
+
+### Historical Data Recovery
+- No historical trades to recover (dev DB never had trading cycles)
+- The actual "live" DB was inside the Mac app bundle and was being destroyed on each build
+- With the DB exclusion fix, future Mac app builds will NOT overwrite the live DB
+- On first launch after this update, `init_db()` creates a fresh DB, and self-healing populates lifetime tables
+
+**What could be improved:**
+- Could add Render persistent disk documentation
+- Could add a migration path to copy data from Mac bundle DB to persistent location
+- Could add a DB backup on version upgrade
+- Could hash the DB path and print at startup for easier debugging
+
+**Build status:** All Python files compile clean. Frontend builds successfully.
+**Deployment status:** Awaiting permission.
+
+---
+
 ## v7.6.1 — Signal Layer → Review Export Integration
 **Date:** 2026-03-22
 

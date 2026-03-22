@@ -385,6 +385,7 @@ export default function Lab() {
   const {data:crowdD}        = useApi("/v7/crowd/belief-vs-reality", 30000);
   const {data:signalsD}      = useApi("/v7/signals/latest", 30000);
   const {data:sigInsightsD}  = useApi("/v7/signals/insights", 45000);
+  const {data:continuityD}   = useApi("/v7/system/continuity-audit", 120000);
 
   // Global collapse control: null = use local state, true/false = override
   const [globalCollapse, setGlobalCollapse] = useState(null);
@@ -1292,6 +1293,49 @@ export default function Lab() {
         )}
       </div>
       </Collapsible>
+
+      {/* ── Continuity Health (v7.6.2) ── */}
+      {continuityD && (
+        <Collapsible title="Continuity Health" badge={continuityD.continuity_health ? `(${continuityD.continuity_health})` : ""} defaultOpen={false} forceOpen={globalCollapse}>
+        <div style={{fontSize:10,color:"var(--text-muted)",lineHeight:1.5}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:6,marginBottom:8}}>
+            <div style={CARD_COMPACT}>
+              <div style={{...LBL,marginBottom:2}}>Health</div>
+              <div style={{fontSize:14,fontWeight:700,color:continuityD.continuity_health==="good"?"#22c55e":continuityD.continuity_health==="warning"?"#f59e0b":"#ef4444"}}>{(continuityD.continuity_health||"unknown").toUpperCase()}</div>
+            </div>
+            <div style={CARD_COMPACT}>
+              <div style={{...LBL,marginBottom:2}}>Lifetime Trades</div>
+              <div style={{fontSize:14,fontWeight:700,color:"var(--text)"}}>{continuityD.lifetime_trades||0}</div>
+            </div>
+            <div style={CARD_COMPACT}>
+              <div style={{...LBL,marginBottom:2}}>Lifetime Cycles</div>
+              <div style={{fontSize:14,fontWeight:700,color:"var(--text)"}}>{continuityD.lifetime_cycles||0}</div>
+            </div>
+            <div style={CARD_COMPACT}>
+              <div style={{...LBL,marginBottom:2}}>Sessions</div>
+              <div style={{fontSize:14,fontWeight:700,color:"var(--text)"}}>{continuityD.lifetime_sessions||0}</div>
+            </div>
+            <div style={CARD_COMPACT}>
+              <div style={{...LBL,marginBottom:2}}>DB Size</div>
+              <div style={{fontSize:12,fontWeight:600,color:"var(--text)"}}>{continuityD.db_size_kb||0} KB</div>
+            </div>
+            <div style={CARD_COMPACT}>
+              <div style={{...LBL,marginBottom:2}}>Version</div>
+              <div style={{fontSize:12,fontWeight:600,color:"var(--text)"}}>v{continuityD.current_version||"?"}</div>
+            </div>
+          </div>
+          {continuityD.db_path && <div style={{fontSize:9,color:"var(--text-muted)",wordBreak:"break-all",marginBottom:4}}>DB: {continuityD.db_path}</div>}
+          {(continuityD.warnings||[]).length > 0 && (
+            <div style={{marginTop:4}}>
+              <div style={{...LBL,color:"#f59e0b",marginBottom:2}}>Warnings ({continuityD.warnings.length})</div>
+              {continuityD.warnings.map((w,i)=>(
+                <div key={i} style={{fontSize:10,color:"#f59e0b",padding:"2px 0",borderBottom:"1px solid var(--border)"}}>{w}</div>
+              ))}
+            </div>
+          )}
+        </div>
+        </Collapsible>
+      )}
     </>
   );
 }

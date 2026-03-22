@@ -22,7 +22,7 @@ from config import DATA_DIR
 # App version — single source of truth
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "7.6.1"
+APP_VERSION = "7.6.2"
 
 # ---------------------------------------------------------------------------
 # Module state
@@ -150,53 +150,11 @@ def initialize() -> dict:
             current_version=APP_VERSION,
         )
 
-    # 4a. Initialize lifetime portfolio if needed
-    lt_portfolio = db.get_lifetime_portfolio()
-    if not lt_portfolio:
-        # Double-check: also verify no initial_funding already in capital_ledger
-        # (guards against row deletion + re-creation)
-        existing_funding = [e for e in db.get_capital_events(limit=100)
-                            if e.get("event_type") == "initial_funding"]
-        if existing_funding:
-            # Portfolio row was deleted but funding was logged — re-create from last known state
-            last_funding = existing_funding[0]
-            balance = last_funding.get("balance_after") or last_funding.get("amount", 100)
-            db.upsert_lifetime_portfolio(cash=balance, total_equity=balance, peak_equity=balance)
-            print(f"[session] Lifetime portfolio re-created from existing funding: ${balance}")
-        else:
-            # True first boot — seed from INITIAL_BALANCE
-            from config import INITIAL_BALANCE
-            db.upsert_lifetime_portfolio(cash=INITIAL_BALANCE, total_equity=INITIAL_BALANCE,
-                                          peak_equity=INITIAL_BALANCE)
-            db.insert_capital_event(
-                event_type="initial_funding", amount=INITIAL_BALANCE,
-                balance_after=INITIAL_BALANCE, reason="System initial funding",
-                session_id=_current_session_id, version=APP_VERSION,
-            )
-            print(f"[session] Lifetime portfolio initialized: ${INITIAL_BALANCE}")
+    # 4a. Self-heal lifetime portfolio (EVERY startup, not just first boot)
+    _heal_lifetime_portfolio(system)
 
-    # 4b. Initialize / update lifetime identity (never reset, only create once)
-    identity = db.get_lifetime_identity()
-    if not identity:
-        # First boot ever — seed from system state if available
-        init_cycles = system.get("total_lifetime_cycles", 0) if system else 0
-        init_trades = system.get("total_lifetime_trades", 0) if system else 0
-        # Count only real sessions (exclude pre-v7 archives)
-        all_sessions = db.get_all_sessions()
-        real_sessions = [s for s in (all_sessions or [])
-                         if s.get("app_version", "") != "pre-v7"]
-        init_sessions = max(1, len(real_sessions))
-        db.upsert_lifetime_identity(
-            total_cycles=init_cycles,
-            total_trades=init_trades,
-            total_sessions=init_sessions,
-            last_version=APP_VERSION,
-        )
-        print(f"[session] Lifetime identity initialized: {init_cycles} cycles, "
-              f"{init_trades} trades, {init_sessions} sessions")
-    else:
-        # Only update version — never re-count sessions/cycles on resume
-        db.upsert_lifetime_identity(last_version=APP_VERSION)
+    # 4b. Self-heal lifetime identity (EVERY startup, not just first boot)
+    _heal_lifetime_identity(system)
 
     # 5. Create default behavior profile if none exists
     profile = db.get_active_profile(_current_session_id)
@@ -211,6 +169,172 @@ def initialize() -> dict:
         print(f"[session] Created default behavior state (v7.1)")
 
     return summary
+
+
+def _heal_lifetime_portfolio(system: dict | None) -> None:
+    """Self-heal lifetime portfolio on EVERY startup.
+
+    Recovers from amnesia:
+    - If lifetime_portfolio is missing → recreate from capital_ledger or trade_ledger
+    - If lifetime_portfolio exists but has stale zeros while trade_ledger has data → rebuild
+    - NEVER overwrites a populated portfolio with zeros
+    """
+    lt_portfolio = db.get_lifetime_portfolio()
+
+    if lt_portfolio:
+        # Portfolio exists — check for stale zeros
+        lt_trades = lt_portfolio.get("total_trades", 0) or 0
+        actual_trades = _count_lifetime_trades()
+
+        if lt_trades == 0 and actual_trades > 0:
+            # Portfolio has 0 trades but trade_ledger has data → rebuild
+            _rebuild_portfolio_from_trades(actual_trades)
+            print(f"[session] HEALED: lifetime_portfolio had 0 trades but trade_ledger has {actual_trades}. Rebuilt.")
+        else:
+            # Portfolio looks healthy
+            db.upsert_lifetime_identity(last_version=APP_VERSION)
+        return
+
+    # Portfolio missing — try to recover
+    # 1. Check capital_ledger for prior funding
+    existing_funding = [e for e in db.get_capital_events(limit=100)
+                        if e.get("event_type") == "initial_funding"]
+    if existing_funding:
+        last_funding = existing_funding[0]
+        balance = last_funding.get("balance_after") or last_funding.get("amount", 100)
+        db.upsert_lifetime_portfolio(cash=balance, total_equity=balance, peak_equity=balance)
+        print(f"[session] HEALED: lifetime_portfolio re-created from capital_ledger: ${balance}")
+        # Rebuild trade stats if available
+        actual_trades = _count_lifetime_trades()
+        if actual_trades > 0:
+            _rebuild_portfolio_from_trades(actual_trades)
+        return
+
+    # 2. Check if trade_ledger has history we can rebuild from
+    actual_trades = _count_lifetime_trades()
+    if actual_trades > 0:
+        from config import INITIAL_BALANCE
+        db.upsert_lifetime_portfolio(cash=INITIAL_BALANCE, total_equity=INITIAL_BALANCE,
+                                      peak_equity=INITIAL_BALANCE)
+        _rebuild_portfolio_from_trades(actual_trades)
+        print(f"[session] HEALED: lifetime_portfolio rebuilt from {actual_trades} trades in trade_ledger")
+        return
+
+    # 3. True first boot — seed from INITIAL_BALANCE
+    from config import INITIAL_BALANCE
+    db.upsert_lifetime_portfolio(cash=INITIAL_BALANCE, total_equity=INITIAL_BALANCE,
+                                  peak_equity=INITIAL_BALANCE)
+    db.insert_capital_event(
+        event_type="initial_funding", amount=INITIAL_BALANCE,
+        balance_after=INITIAL_BALANCE, reason="System initial funding",
+        session_id=_current_session_id, version=APP_VERSION,
+    )
+    print(f"[session] Lifetime portfolio initialized: ${INITIAL_BALANCE}")
+
+
+def _heal_lifetime_identity(system: dict | None) -> None:
+    """Self-heal lifetime identity on EVERY startup.
+
+    Recovers from amnesia:
+    - If lifetime_identity is missing → recreate from system_state + version_sessions
+    - If lifetime_identity has stale zeros while real data exists → rebuild
+    - NEVER overwrites populated identity with lower values
+    """
+    identity = db.get_lifetime_identity()
+
+    # Gather ground-truth counts from actual data
+    all_sessions = db.get_all_sessions() or []
+    real_sessions = [s for s in all_sessions if s.get("app_version", "") != "pre-v7"]
+    actual_sessions = max(1, len(real_sessions))
+    actual_cycles = (system.get("total_lifetime_cycles", 0) or 0) if system else 0
+    actual_trades = _count_lifetime_trades()
+
+    # Also count from trade_ledger directly if system_state is stale
+    if actual_trades > 0 and actual_cycles == 0:
+        # System says 0 cycles but we have trades — estimate from snapshots
+        try:
+            from db import get_db
+            with get_db() as conn:
+                row = conn.execute("SELECT MAX(cycle_number) as m FROM cycle_snapshots").fetchone()
+                if row and row["m"]:
+                    actual_cycles = row["m"]
+        except Exception:
+            pass
+
+    if identity:
+        # Identity exists — check for stale zeros and heal
+        id_cycles = identity.get("total_cycles", 0) or 0
+        id_trades = identity.get("total_trades", 0) or 0
+        id_sessions = identity.get("total_sessions", 0) or 0
+
+        healed = False
+        updates = {"last_version": APP_VERSION}
+
+        # NEVER reduce — only increase
+        if actual_cycles > id_cycles:
+            updates["total_cycles"] = actual_cycles
+            healed = True
+        if actual_trades > id_trades:
+            updates["total_trades"] = actual_trades
+            healed = True
+        if actual_sessions > id_sessions:
+            updates["total_sessions"] = actual_sessions
+            healed = True
+
+        db.upsert_lifetime_identity(**updates)
+        if healed:
+            print(f"[session] HEALED: lifetime_identity updated — "
+                  f"cycles: {id_cycles}→{updates.get('total_cycles', id_cycles)}, "
+                  f"trades: {id_trades}→{updates.get('total_trades', id_trades)}, "
+                  f"sessions: {id_sessions}→{updates.get('total_sessions', id_sessions)}")
+        return
+
+    # Identity missing — create from ground truth
+    db.upsert_lifetime_identity(
+        total_cycles=actual_cycles,
+        total_trades=actual_trades,
+        total_sessions=actual_sessions,
+        last_version=APP_VERSION,
+    )
+    print(f"[session] HEALED: lifetime_identity created — "
+          f"{actual_cycles} cycles, {actual_trades} trades, {actual_sessions} sessions")
+
+
+def _count_lifetime_trades() -> int:
+    """Count total trades across ALL sessions from trade_ledger."""
+    try:
+        from db import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT COUNT(*) as c FROM trade_ledger").fetchone()
+            return row["c"] if row else 0
+    except Exception:
+        return 0
+
+
+def _rebuild_portfolio_from_trades(total_trades: int) -> None:
+    """Rebuild lifetime_portfolio trade stats from actual trade_ledger data."""
+    try:
+        from db import get_db
+        with get_db() as conn:
+            row = conn.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN action='BUY' THEN 1 ELSE 0 END) as buys,
+                    SUM(CASE WHEN action='SELL' THEN 1 ELSE 0 END) as sells,
+                    SUM(CASE WHEN action='SELL' AND pnl > 0 THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN action='SELL' AND pnl < 0 THEN 1 ELSE 0 END) as losses,
+                    COALESCE(SUM(CASE WHEN action='SELL' THEN pnl ELSE 0 END), 0) as realized_pnl
+                FROM trade_ledger
+            """).fetchone()
+            if row:
+                db.upsert_lifetime_portfolio(
+                    total_trades=row["total"] or 0,
+                    total_wins=row["wins"] or 0,
+                    total_losses=row["losses"] or 0,
+                    realized_pnl=round(row["realized_pnl"] or 0, 6),
+                )
+    except Exception as e:
+        print(f"[session] Portfolio rebuild warning: {e}")
 
 
 def _find_csv_trades() -> Path | None:
@@ -500,3 +624,134 @@ def _make_cycle_summary(action: str, score: float, regime: str, price: float) ->
         return f"SELL at ${price:,.0f} (score {score:.0f}, {regime})"
     else:
         return f"HOLD (score {score:.0f}, {regime})"
+
+
+# ---------------------------------------------------------------------------
+# Continuity Diagnostic (v7.6.2)
+# ---------------------------------------------------------------------------
+
+def get_continuity_audit() -> dict:
+    """Full continuity health audit — DB path, table counts, warnings.
+
+    Returns a diagnostic dict for debugging amnesia issues.
+    """
+    import os
+
+    db_path = str(db.DB_PATH)
+    db_exists = os.path.exists(db_path)
+    db_size = os.path.getsize(db_path) if db_exists else 0
+    db_modified = ""
+    if db_exists:
+        from datetime import datetime as _dt
+        db_modified = _dt.fromtimestamp(os.path.getmtime(db_path)).isoformat()
+
+    # Table counts
+    table_counts = {}
+    critical_tables = [
+        "system_state", "version_sessions", "trade_ledger", "cycle_snapshots",
+        "strategy_state", "behavior_profile", "experience_memory",
+        "experience_outcomes", "missed_opportunities", "daily_reviews",
+        "daily_bias", "regime_profiles", "behavior_states",
+        "adaptation_events", "adaptation_journal", "evolution_snapshots",
+        "milestones", "news_events", "news_event_analysis",
+        "mind_feed_events", "mind_journal_entries", "action_reflections",
+        "news_truth_reviews", "replay_markers", "personality_snapshots",
+        "session_intents", "lifetime_mind_stats", "lifetime_identity",
+        "lifetime_portfolio", "capital_ledger", "crowd_sentiment_events",
+        "signal_events", "mind_state_snapshots",
+    ]
+    try:
+        from db import get_db
+        with get_db() as conn:
+            for table in critical_tables:
+                try:
+                    row = conn.execute(f"SELECT COUNT(*) as c FROM [{table}]").fetchone()
+                    table_counts[table] = row["c"] if row else 0
+                except Exception:
+                    table_counts[table] = -1  # table doesn't exist
+    except Exception:
+        pass
+
+    # Current state
+    system = db.get_system_state() or {}
+    identity = db.get_lifetime_identity() or {}
+    lt_portfolio = db.get_lifetime_portfolio() or {}
+    all_sessions = db.get_all_sessions() or []
+
+    # Ground truth from trade_ledger
+    actual_trades = _count_lifetime_trades()
+
+    # Warnings
+    warnings = []
+
+    # Check: DB path anomalies
+    if not db_exists:
+        warnings.append("DB file does not exist at expected path!")
+
+    # Check: lifetime tables empty but history exists
+    if table_counts.get("lifetime_identity", 0) == 0:
+        warnings.append("lifetime_identity is EMPTY — identity not persisting across versions")
+    if table_counts.get("lifetime_portfolio", 0) == 0:
+        warnings.append("lifetime_portfolio is EMPTY — financial state not persisting")
+    if table_counts.get("capital_ledger", 0) == 0:
+        warnings.append("capital_ledger is EMPTY — no funding events recorded")
+
+    # Check: trade_ledger vs system_state disagreement
+    sys_trades = system.get("total_lifetime_trades", 0) or 0
+    id_trades = identity.get("total_trades", 0) or 0
+    if actual_trades > 0 and sys_trades == 0:
+        warnings.append(f"trade_ledger has {actual_trades} trades but system_state says 0")
+    if actual_trades > 0 and id_trades == 0:
+        warnings.append(f"trade_ledger has {actual_trades} trades but lifetime_identity says 0")
+
+    # Check: stale session version
+    active = db.get_active_session()
+    if active and active.get("app_version") != APP_VERSION:
+        warnings.append(f"Active session version ({active.get('app_version')}) != current ({APP_VERSION}) — upgrade pending")
+
+    # Check: cycle_snapshots vs system_state
+    sys_cycles = system.get("total_lifetime_cycles", 0) or 0
+    cs_count = table_counts.get("cycle_snapshots", 0)
+    if cs_count > 0 and sys_cycles == 0:
+        warnings.append(f"cycle_snapshots has {cs_count} rows but system_state says 0 lifetime cycles")
+
+    # Check: multiple DB files
+    db_dir = os.path.dirname(db_path)
+    db_files = [f for f in os.listdir(db_dir) if f.endswith(".db")] if os.path.isdir(db_dir) else []
+    if len(db_files) > 1:
+        warnings.append(f"Multiple DB files in data dir: {db_files}")
+
+    # Continuity health score
+    critical_issues = sum(1 for w in warnings if "EMPTY" in w or "does not exist" in w)
+    data_issues = sum(1 for w in warnings if "says 0" in w)
+    if critical_issues > 0:
+        health = "broken"
+    elif data_issues > 0:
+        health = "warning"
+    elif len(warnings) > 0:
+        health = "degraded"
+    else:
+        health = "good"
+
+    return {
+        "db_path": db_path,
+        "db_exists": db_exists,
+        "db_size_bytes": db_size,
+        "db_size_kb": round(db_size / 1024, 1),
+        "db_last_modified": db_modified,
+        "table_counts": table_counts,
+        "current_version": APP_VERSION,
+        "current_session_id": _current_session_id,
+        "active_session_version": active.get("app_version") if active else None,
+        "lifetime_sessions": len(all_sessions),
+        "lifetime_trades": actual_trades,
+        "lifetime_cycles": sys_cycles,
+        "identity_trades": id_trades,
+        "identity_cycles": identity.get("total_cycles", 0) or 0,
+        "identity_sessions": identity.get("total_sessions", 0) or 0,
+        "portfolio_equity": lt_portfolio.get("total_equity", 0) or 0,
+        "portfolio_cash": lt_portfolio.get("cash", 0) or 0,
+        "continuity_health": health,
+        "warnings": warnings,
+        "warning_count": len(warnings),
+    }
