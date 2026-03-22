@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.6.3 — Web-Only + Runtime Status",
-    version="7.6.3",
+    description="v7.7.0 — Lifetime Rehydration + Capital Continuity",
+    version="7.7.0",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -1900,7 +1900,6 @@ def refill_capital(amount: float = Query(ge=1, le=100000),
         result = session_manager.record_refill(amount=amount, reason=reason)
         if result.get("error"):
             return result
-        # Return updated portfolio alongside refill confirmation
         portfolio = v7db.get_lifetime_portfolio()
         result["portfolio"] = portfolio or {}
         return result
@@ -1908,9 +1907,60 @@ def refill_capital(amount: float = Query(ge=1, le=100000),
         return {"error": str(e)}
 
 
+# ---------------------------------------------------------------------------
+# v7.7.0: Canonical refill endpoint (JSON body, per spec)
+# ---------------------------------------------------------------------------
+
+class RefillRequest(BaseModel):
+    amount: float
+    reason: str = "Manual bankroll refill"
+
+
+@app.post("/v7/portfolio/refill")
+def portfolio_refill(req: RefillRequest, user_id: str = Depends(get_user_id)):
+    """Add capital to active bankroll.
+    Explicit refill — does NOT reset trades, history, identity, or PnL.
+    10-second cooldown prevents accidental duplicates.
+    """
+    try:
+        import session_manager
+        import db as v7db
+        if req.amount <= 0:
+            return {"error": "Amount must be positive"}
+        result = session_manager.record_refill(amount=req.amount, reason=req.reason)
+        if result.get("error"):
+            return result
+        portfolio = v7db.get_lifetime_portfolio()
+        capital_summary = v7db.get_capital_summary()
+        result["portfolio"] = portfolio or {}
+        result["capital_summary"] = capital_summary or {}
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# v7.7.0: Rehydration summary endpoint
+# ---------------------------------------------------------------------------
+
+@app.get("/v7/system/rehydration")
+def get_rehydration_status():
+    """Full lifetime rehydration summary — what the system knows about its own history."""
+    try:
+        import lifetime_rehydration_engine
+        return lifetime_rehydration_engine.get_rehydration_summary()
+    except Exception as e:
+        return {
+            "rehydration_status": "error",
+            "error": str(e),
+            "sources_used": [],
+            "sources_empty": [],
+        }
+
+
 @app.get("/v7/trades/scoped")
 def get_scoped_trades(
-    scope: str = Query(default="session", regex="^(session|version|lifetime)$"),
+    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly)$"),
     limit: int = Query(default=50, ge=1, le=200),
 ):
     """Trades filtered by scope: session, version, or lifetime."""
@@ -1976,7 +2026,7 @@ def get_mind_patterns():
 
 @app.get("/v7/performance/scoped")
 def get_performance_scoped(
-    scope: str = Query(default="session", regex="^(session|version|lifetime)$"),
+    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly)$"),
 ):
     """Performance stats filtered by scope: session, version, or lifetime."""
     try:
@@ -1996,7 +2046,7 @@ def get_performance_scoped(
 
 @app.get("/v7/journal/scoped")
 def get_journal_scoped(
-    scope: str = Query(default="session", regex="^(session|version|lifetime)$"),
+    scope: str = Query(default="session", regex="^(session|version|lifetime|daily|weekly|monthly)$"),
     limit: int = Query(default=30, ge=1, le=100),
 ):
     """Journal entries filtered by scope. Uses trade_ledger for scoped data."""

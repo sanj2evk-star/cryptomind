@@ -22,7 +22,7 @@ from config import DATA_DIR
 # App version — single source of truth
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "7.6.3"
+APP_VERSION = "7.7.0"
 
 # ---------------------------------------------------------------------------
 # Module state
@@ -155,6 +155,15 @@ def initialize() -> dict:
 
     # 4b. Self-heal lifetime identity (EVERY startup, not just first boot)
     _heal_lifetime_identity(system)
+
+    # 4c. v7.7.0: Rehydrate lifetime summaries from all historical sources
+    try:
+        import lifetime_rehydration_engine
+        rh = lifetime_rehydration_engine.force_rehydrate()
+        print(f"[session] Rehydration: {rh.get('rehydration_status', '?')} "
+              f"(sources: {rh.get('sources_used', [])})")
+    except Exception as e:
+        print(f"[session] Rehydration error (non-fatal): {e}")
 
     # 5. Create default behavior profile if none exists
     profile = db.get_active_profile(_current_session_id)
@@ -733,6 +742,30 @@ def get_continuity_audit() -> dict:
     else:
         health = "good"
 
+    # Rehydration status (v7.7.0)
+    rh_status = "unknown"
+    rh_sources = []
+    rh_at = None
+    try:
+        import lifetime_rehydration_engine
+        rh = lifetime_rehydration_engine.get_rehydration_summary()
+        rh_status = rh.get("rehydration_status", "unknown")
+        rh_sources = rh.get("sources_used", [])
+        rh_at = rh.get("rehydrated_at")
+    except Exception:
+        pass
+
+    # Capital summary (v7.7.0)
+    cap_summary = db.get_capital_summary() or {}
+    refill_count = cap_summary.get("total_events", 0) or 0
+
+    # Last version transition
+    last_transition = None
+    for s in reversed(all_sessions):
+        if s.get("notes") and "upgrade" in (s.get("notes") or "").lower():
+            last_transition = s.get("notes")
+            break
+
     return {
         "db_path": db_path,
         "db_exists": db_exists,
@@ -751,7 +784,14 @@ def get_continuity_audit() -> dict:
         "identity_sessions": identity.get("total_sessions", 0) or 0,
         "portfolio_equity": lt_portfolio.get("total_equity", 0) or 0,
         "portfolio_cash": lt_portfolio.get("cash", 0) or 0,
+        "portfolio_refills": lt_portfolio.get("total_refills", 0) or 0,
         "continuity_health": health,
         "warnings": warnings,
         "warning_count": len(warnings),
+        # v7.7.0 rehydration fields
+        "rehydration_status": rh_status,
+        "rehydration_sources": rh_sources,
+        "rehydrated_at": rh_at,
+        "capital_events_count": refill_count,
+        "last_version_transition": last_transition,
     }

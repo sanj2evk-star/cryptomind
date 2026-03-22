@@ -3026,9 +3026,19 @@ def sync_lifetime_portfolio(cash: float, btc_holdings: float, avg_entry: float,
     )
 
 
+def _scope_date_cutoff(scope: str) -> str | None:
+    """Return ISO cutoff timestamp for date-windowed scopes, or None."""
+    from datetime import timedelta
+    windows = {"daily": 1, "weekly": 7, "monthly": 30}
+    if scope in windows:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=windows[scope])
+        return cutoff.isoformat()
+    return None
+
+
 def get_trades_by_scope(scope: str = "session", session_id: int = None,
                          version: str = None, limit: int = 100) -> tuple[list[dict], int]:
-    """Get trades filtered by scope: session, version, or lifetime."""
+    """Get trades filtered by scope: session, version, lifetime, daily, weekly, monthly."""
     with get_db() as conn:
         if scope == "lifetime":
             rows = conn.execute(
@@ -3056,6 +3066,17 @@ def get_trades_by_scope(scope: str = "session", session_id: int = None,
                 "SELECT COUNT(*) as c FROM trade_ledger WHERE session_id = ?",
                 (session_id,)
             ).fetchone()["c"]
+        elif scope in ("daily", "weekly", "monthly"):
+            cutoff = _scope_date_cutoff(scope)
+            rows = conn.execute(
+                """SELECT * FROM trade_ledger WHERE timestamp >= ?
+                   ORDER BY trade_id DESC LIMIT ?""",
+                (cutoff, limit)
+            ).fetchall()
+            total = conn.execute(
+                "SELECT COUNT(*) as c FROM trade_ledger WHERE timestamp >= ?",
+                (cutoff,)
+            ).fetchone()["c"]
         else:
             # No valid scope/id — return empty, not lifetime
             return [], 0
@@ -3064,10 +3085,10 @@ def get_trades_by_scope(scope: str = "session", session_id: int = None,
 
 def get_trade_stats_by_scope(scope: str = "session", session_id: int = None,
                               version: str = None) -> dict:
-    """Get trade stats by scope."""
+    """Get trade stats by scope: session, version, lifetime, daily, weekly, monthly."""
     with get_db() as conn:
         where = ""
-        params = []
+        params: list = []
         if scope == "lifetime":
             pass  # no WHERE — all trades
         elif scope == "version" and version:
@@ -3076,6 +3097,10 @@ def get_trade_stats_by_scope(scope: str = "session", session_id: int = None,
         elif scope == "session" and session_id:
             where = "WHERE session_id = ?"
             params = [session_id]
+        elif scope in ("daily", "weekly", "monthly"):
+            cutoff = _scope_date_cutoff(scope)
+            where = "WHERE timestamp >= ?"
+            params = [cutoff]
         else:
             # Invalid scope/missing id — return empty stats
             return {"total": 0, "buys": 0, "sells": 0, "holds": 0, "wins": 0,

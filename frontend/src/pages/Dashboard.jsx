@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
-import { useApi } from "../hooks/useApi";
+import { useApi, BASE, getToken } from "../hooks/useApi";
 import { useKeepAlive } from "../hooks/useKeepAlive";
 import { useTradeSound } from "../hooks/useTradeSound";
 import { fmtLocalTime, fmtLocalTimeShort, getTimezoneLabel } from "../hooks/useTime";
@@ -86,11 +86,42 @@ export default function Dashboard() {
   const { data: memStatus } = useApi("/v7/memory", 30000);
   const { data: latestReview } = useApi("/v7/daily-review", 60000);
   const { data: mindData } = useApi("/v7/mind", 30000);
+  const { data: ltPortfolio, retry: rLtPortfolio } = useApi("/v7/lifetime/portfolio", 30000);
 
   const { status: sysStatus, lastPing } = useKeepAlive();
   const { enabled: soundEnabled, toggle: toggleSound, checkTrades: checkTradeSound } = useTradeSound();
   const [refreshing, setRefreshing] = useState(false);
   const [showHolds, setShowHolds] = useState(false);
+
+  // Refill state
+  const [showRefill, setShowRefill] = useState(false);
+  const [refillAmount, setRefillAmount] = useState("100");
+  const [refillLoading, setRefillLoading] = useState(false);
+  const [refillResult, setRefillResult] = useState(null);
+
+  const handleRefill = useCallback(async () => {
+    const amount = parseFloat(refillAmount);
+    if (!amount || amount <= 0) return;
+    setRefillLoading(true);
+    setRefillResult(null);
+    try {
+      const res = await fetch(`${BASE}/v7/portfolio/refill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ amount, reason: "Manual bankroll refill" }),
+      });
+      const data = await res.json();
+      setRefillResult(data);
+      if (!data.error) {
+        rLtPortfolio();
+        setTimeout(() => { setShowRefill(false); setRefillResult(null); }, 3000);
+      }
+    } catch (e) {
+      setRefillResult({ error: String(e) });
+    } finally {
+      setRefillLoading(false);
+    }
+  }, [refillAmount, rLtPortfolio]);
   const [tradeBanner, setTradeBanner] = useState(null);
   const lastBannerTradeRef = useRef(null);
   const [proMode, setProMode] = useState(() => {
@@ -344,6 +375,89 @@ export default function Dashboard() {
               Last Review: {latestReview.review.review_date || "—"}
             </span>
           )}
+        </div>
+      )}
+
+      {/* ── v7.7.0: Lifetime Capital Strip + Refill ── */}
+      {ltPortfolio && !ltPortfolio.warming_up && (
+        <div style={{
+          display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+          padding: "6px 10px", marginBottom: isTouch ? 5 : 6,
+          background: "var(--surface)", border: "1px solid var(--border)",
+          borderRadius: 6, fontSize: 10,
+          borderLeft: "3px solid #22c55e",
+        }}>
+          <span style={{ color: "#22c55e", fontWeight: 700, fontSize: 11 }}>Bankroll</span>
+          <span style={{ color: "var(--text-muted)" }}>
+            Cash: <b style={{ color: "var(--text)" }}>${(ltPortfolio.cash || 0).toFixed(2)}</b>
+          </span>
+          <span style={{ color: "var(--text-muted)" }}>
+            Equity: <b style={{ color: "var(--text)" }}>${(ltPortfolio.total_equity || 0).toFixed(2)}</b>
+          </span>
+          <span style={{ color: "var(--text-muted)" }}>
+            Peak: <b style={{ color: "var(--text)" }}>${(ltPortfolio.peak_equity || 0).toFixed(2)}</b>
+          </span>
+          {(ltPortfolio.total_refills || 0) > 0 && (
+            <span style={{ color: "var(--text-muted)" }}>
+              Refills: <b style={{ color: "#f59e0b" }}>{ltPortfolio.total_refills}</b>
+              <span style={{ opacity: 0.6 }}> (+${(ltPortfolio.total_refill_amount || 0).toFixed(0)})</span>
+            </span>
+          )}
+          {/* Refill button */}
+          <button
+            onClick={() => { setShowRefill(v => !v); setRefillResult(null); }}
+            style={{
+              marginLeft: "auto", padding: "2px 8px", fontSize: 10, fontWeight: 600,
+              background: showRefill ? "#22c55e22" : "var(--bg)", border: "1px solid #22c55e55",
+              borderRadius: 4, color: "#22c55e", cursor: "pointer",
+            }}
+          >
+            {showRefill ? "× Cancel" : "+ Refill"}
+          </button>
+        </div>
+      )}
+
+      {/* ── Refill panel ── */}
+      {showRefill && (
+        <div style={{
+          padding: "10px 12px", marginBottom: isTouch ? 5 : 6,
+          background: "var(--surface)", border: "1px solid #22c55e44",
+          borderRadius: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
+        }}>
+          <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600 }}>Add capital:</span>
+          <input
+            type="number" min="1" max="100000" value={refillAmount}
+            onChange={e => setRefillAmount(e.target.value)}
+            style={{
+              width: 90, padding: "4px 8px", fontSize: 12, borderRadius: 4,
+              background: "var(--bg)", border: "1px solid var(--border)",
+              color: "var(--text)", outline: "none",
+            }}
+          />
+          <button
+            onClick={handleRefill}
+            disabled={refillLoading || !refillAmount || parseFloat(refillAmount) <= 0}
+            style={{
+              padding: "4px 14px", fontSize: 11, fontWeight: 700,
+              background: "#22c55e", border: "none", borderRadius: 4,
+              color: "#fff", cursor: "pointer", opacity: refillLoading ? 0.6 : 1,
+            }}
+          >
+            {refillLoading ? "…" : `Add $${refillAmount}`}
+          </button>
+          {refillResult && !refillResult.error && (
+            <span style={{ fontSize: 11, color: "#22c55e", fontWeight: 600 }}>
+              ✓ Added ${refillResult.added} → ${refillResult.new_cash?.toFixed(2)}
+            </span>
+          )}
+          {refillResult?.error && (
+            <span style={{ fontSize: 11, color: "var(--red)" }}>
+              ✗ {refillResult.error}
+            </span>
+          )}
+          <span style={{ fontSize: 9, color: "var(--text-muted)", marginLeft: "auto" }}>
+            Does not reset history or P&amp;L
+          </span>
         </div>
       )}
 

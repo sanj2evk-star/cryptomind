@@ -4,6 +4,41 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.7.0 — Lifetime Rehydration + Capital Continuity Layer
+**Date:** 2026-03-22
+
+### Core Model
+Mind = persistent being. Version = chapter. Session = run inside a chapter. Refill = explicit capital intervention, never a reset.
+
+### New: `app/lifetime_rehydration_engine.py`
+Builds live lifetime summaries from all historical data sources on startup.
+- Sources: `trade_ledger`, `auto_trades.csv` (pre-v7), `cycle_snapshots`, `experience_memory`, `daily_reviews`, `capital_ledger`, `lifetime_identity`, `lifetime_portfolio`, `version_sessions`
+- Produces: `identity_summary`, `capital_summary`, `performance_summary`, `memory_summary`, `date_summaries` (daily/weekly/monthly)
+- `rehydration_status`: `good` / `partial` / `empty` — honest, no fabrication
+- `force_rehydrate()` on every startup; cached 5min for fast API access
+
+### Modified Files
+| File | Change |
+|------|--------|
+| `app/session_manager.py` | Calls `lifetime_rehydration_engine.force_rehydrate()` on startup; continuity-audit extended with rehydration + capital fields |
+| `app/db.py` | `get_trades_by_scope` + `get_trade_stats_by_scope` extended with `daily`/`weekly`/`monthly` date-window scopes |
+| `app/api.py` | `POST /v7/portfolio/refill` (JSON body); `GET /v7/system/rehydration`; scoped endpoints accept daily/weekly/monthly |
+| `frontend/src/pages/Dashboard.jsx` | Lifetime Capital Strip (bankroll/equity/peak/refills) + Refill UI panel |
+
+### Capital Continuity Rules
+- `lifetime_portfolio` persists across restarts, version bumps, session changes
+- Refill records in `capital_ledger`, adds to cash, never resets stats
+- Anti-reduction guardrail: `total_trades`, `total_wins`, `peak_equity` never decrease
+- `total_refills` + `total_refill_amount` tracked permanently
+
+### Scope Support
+`daily` (24h) · `weekly` (7d) · `monthly` (30d) · `session` · `version` · `lifetime`
+
+### No Signal Influence Added
+No trading logic, strategy, or signal routing was changed.
+
+---
+
 ## v7.6.4 — Fix Render Deployment + Runtime Status
 **Date:** 2026-03-22
 
