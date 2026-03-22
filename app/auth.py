@@ -104,7 +104,7 @@ def _get_stable_secret() -> str:
 
 
 JWT_SECRET = _get_stable_secret()
-JWT_EXPIRY_HOURS = 72  # 3 days (was 24h — too short for desktop app)
+JWT_EXPIRY_HOURS = 72  # 3 days
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 

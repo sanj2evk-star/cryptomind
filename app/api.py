@@ -2215,10 +2215,10 @@ def get_review_text(
 
 
 # ---------------------------------------------------------------------------
-# Static frontend serving (production desktop app)
+# Static frontend serving (production / Render)
 #
-# Serves the built React frontend so the Electron app can load everything
-# from http://localhost:8000 — no file://, no CORS issues.
+# Serves the built React frontend so the web app can load everything
+# from the same origin — no CORS issues.
 #
 # Problem: React SPA routes (/trades, /performance, /journal) collide with
 # API endpoint names. Solution: middleware intercepts browser navigation
@@ -2232,8 +2232,7 @@ from starlette.responses import Response as StarletteResponse
 from config import PROJECT_ROOT
 
 _frontend_candidates = [
-    PROJECT_ROOT / "frontend" / "dist",   # dev: btc-paper-trader/frontend/dist/
-    PROJECT_ROOT / "frontend",            # prod bundle: Resources/frontend/
+    PROJECT_ROOT / "frontend" / "dist",   # dev + Render: btc-paper-trader/frontend/dist/
 ]
 
 _frontend_dir = None

@@ -4,6 +4,47 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.6.3 — Remove Desktop App (Web-Only)
+**Date:** 2026-03-22
+
+### What Changed
+- **Deleted `desktop/` folder entirely** — main.js, loading.html, package.json, package-lock.json, node_modules, dist, cryptomind.png, all Electron configs
+- **Removed Electron dependencies** — electron, electron-builder, all @electron/* packages
+- **Cleaned api.py** — removed "desktop app" comments, removed `Resources/frontend/` prod bundle path candidate (only `frontend/dist/` remains)
+- **Cleaned auth.py** — removed "desktop app" comment from JWT expiry
+- **Updated CLAUDE.md** — deployment rules now web-only, removed all Mac app build references
+- **Updated UPDATE_LOG.md** — this entry
+
+### Why
+- Dual DB paths (server vs packaged app) caused the continuity/amnesia bug fixed in v7.6.2
+- Packaging complexity with no current need — CryptoMind runs on Render (web/iPad)
+- Desktop will be rebuilt later as a thin UI shell with no local state
+
+### Files Deleted
+| Path | Contents |
+|------|----------|
+| `desktop/` (entire folder) | main.js, loading.html, package.json, package-lock.json, cryptomind.png, node_modules/, dist/ |
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `app/api.py` | Removed desktop comments, simplified frontend path candidates |
+| `app/auth.py` | Removed desktop comment |
+| `CLAUDE.md` | Deployment rules → web-only |
+| `UPDATE_LOG.md` | This entry |
+
+### What's Right
+- Zero impact on backend logic, DB, API, or trading behavior
+- Frontend build unchanged (still `npm run build` in `frontend/`)
+- Static serving still works for Render (via `frontend/dist/`)
+- All Python compiles clean, frontend builds clean
+
+### Deployment
+- Render: pushed to `main`
+- Mac app: **removed** (no longer built)
+
+---
+
 ## v7.6.2 — Continuity / Amnesia Audit + Fix
 **Date:** 2026-03-22
 
