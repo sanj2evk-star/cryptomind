@@ -1672,7 +1672,11 @@ def start(user_id: str = "admin") -> dict:
     _state["session_insight_time"] = ""
     _state["last_insight_cycle"] = 0
 
-    run_cycle(user_id)
+    # NOTE: Do NOT run first cycle synchronously here.
+    # run_cycle() fetches BTC price via HTTP which can hang 60+ seconds
+    # from cloud servers (Binance blocked from US IPs). This blocks the
+    # entire FastAPI startup, causing Render health checks to fail and
+    # kill the service. Let the background thread handle the first cycle.
 
     t = threading.Thread(target=_loop, args=(user_id,), daemon=True)
     t.start()
