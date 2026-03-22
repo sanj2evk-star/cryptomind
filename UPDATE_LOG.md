@@ -4,6 +4,44 @@ A running record of every version update: what changed, what was reviewed, and d
 
 ---
 
+## v7.8.1 — Naming Restructure + Perception Lab
+**Date:** 2026-03-23
+
+### System Model (locked)
+`Lab → Mind → Dashboard → Evolution`
+- **Lab** = seeing (external world perception)
+- **Mind** = thinking (present moment interpretation)
+- **Dashboard** = doing (action + financial reality)
+- **Evolution** = becoming (long-term growth + history)
+
+### Step 1: Naming Changes
+| Old Name | New Name | Identity |
+|----------|----------|----------|
+| Mind page | **Evolution** | Growth, skills, timeline, scores |
+| Lab page (v7.8.0) | **Mind** | Present thinking, hero thought, thought stream |
+| (new) | **Lab** | External world perception |
+
+Files: `Mind.jsx` → `Evolution.jsx`, `Lab.jsx` → `MindSpace.jsx`, new `Lab.jsx`
+Navigation: added `/evolution` route + sidebar entry
+Backend: added `/evolution` to SPA paths
+
+### Step 2: New Lab Page (Perception Layer)
+**3 layers only:**
+
+1. **Environment Snapshot** — 4 fields: Noise / Clarity / Narrative / Crowd. Large text, color-coded, no cards.
+2. **Hero Interpretation** — one sentence derived from real signal data. Not decisions. Not emotions.
+3. **Observation Stream** — filtered timeline of external events. Max 6 items. Signal insights, Fear & Greed, news events, hypothesis tracking.
+
+**Hypothesis signals** use observational language only:
+- "Hypothesis: bullish pressure forming" (not "Shadow BUY")
+- Tagged as HYPOTHESIS, visually distinct (purple, italic)
+
+**Information filter rule:** only show what survives filtering. Silence is signal.
+
+### No Trading Logic Changed
+
+---
+
 ## v7.8.0 — Lab Redesign: The Mind Space
 **Date:** 2026-03-23
 

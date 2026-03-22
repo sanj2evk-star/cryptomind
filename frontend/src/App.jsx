@@ -8,7 +8,8 @@ import Performance from "./pages/Performance";
 import Journal from "./pages/Journal";
 import Leaderboard from "./pages/Leaderboard";
 import MemoryPage from "./pages/Memory";
-import MindPage from "./pages/Mind";
+import EvolutionPage from "./pages/Evolution";
+import MindPage from "./pages/MindSpace";
 import LabPage from "./pages/Lab";
 import ReviewPage from "./pages/Review";
 
@@ -205,6 +206,7 @@ export default function App() {
     { to: "/memory", icon: "🧠", label: "Memory" },
     { to: "/mind", icon: "◈", label: "Mind" },
     { to: "/lab", icon: "⬡", label: "Lab" },
+    { to: "/evolution", icon: "🌱", label: "Evolution" },
     { to: "/review", icon: "⬢", label: "Review" },
   ];
 
@@ -249,6 +251,7 @@ export default function App() {
           <Route path="/memory" element={<MemoryPage />} />
           <Route path="/mind" element={<MindPage />} />
           <Route path="/lab" element={<LabPage />} />
+          <Route path="/evolution" element={<EvolutionPage />} />
           <Route path="/review" element={<ReviewPage />} />
         </Routes>
       </main>

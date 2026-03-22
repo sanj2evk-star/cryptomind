@@ -22,7 +22,7 @@ _PERSISTENT_DISK = Path("/var/data")
 DATA_DIR = _PERSISTENT_DISK if _PERSISTENT_DISK.exists() else PROJECT_ROOT / "data"
 
 # -- App version (legacy — session_manager.APP_VERSION is the single source of truth)
-APP_VERSION = "7.8.0"
+APP_VERSION = "7.8.1"
 
 # -- Trading constants --
 SYMBOL = "BTC/USDT"  # default / legacy single-asset

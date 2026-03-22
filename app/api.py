@@ -50,8 +50,8 @@ import auto_trader
 
 app = FastAPI(
     title="CryptoMind API",
-    description="v7.8.0 — Lab Redesign: The Mind Space",
-    version="7.8.0",
+    description="v7.8.1 — Naming Restructure + Perception Lab",
+    version="7.8.1",
 )
 
 # CORS: allow the frontend origin. Extra origins can be added via CORS_ORIGINS env var.
@@ -2738,7 +2738,7 @@ if _frontend_dir:
     _index_html = _frontend_dir / "index.html"
 
     # Known SPA routes that collide with API endpoints
-    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard", "/memory", "/mind", "/lab", "/review"}
+    _SPA_PATHS = {"/", "/trades", "/performance", "/journal", "/leaderboard", "/memory", "/mind", "/lab", "/review", "/evolution"}
 
     class SPAMiddleware(BaseHTTPMiddleware):
         """Serve index.html for browser navigation to SPA routes.
